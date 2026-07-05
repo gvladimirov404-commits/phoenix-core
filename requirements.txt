@@ -1,0 +1,37 @@
+# ==========================================
+# Phoenix Core - Core Dependencies
+# ==========================================
+
+# HTTP Client
+httpx[http2]>=0.25.0
+
+# Async Support
+asyncio-mqtt>=0.16.0
+aiofiles>=23.0.0
+
+# Telegram
+python-telegram-bot[job-queue]>=20.0
+
+# GitHub Integration
+PyGithub>=2.1.0
+
+# Configuration & Validation
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+
+# Logging
+structlog>=23.0.0
+
+# Plugin System
+importlib-metadata>=6.0.0
+
+# Security
+cryptography>=41.0.0
+
+# Utilities
+click>=8.1.0
+rich>=13.0.0
+
+# Termux Compatibility (lightweight alternatives)
+# No heavy system dependencies required

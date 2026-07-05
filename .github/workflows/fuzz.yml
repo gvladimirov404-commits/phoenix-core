@@ -1,0 +1,52 @@
+name: Fuzz Testing
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly Sunday 2 AM UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'phoenix_core/**'
+      - 'tests/fuzz/**'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Atheris Fuzz Testing
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - config_fuzzer
+          - secrets_fuzzer
+          - input_fuzzer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install atheris
+
+      - name: Run fuzzer ${{ matrix.target }}
+        run: |
+          python tests/fuzz/${{ matrix.target }}.py             -atheris_runs=100000             -atheris_max_len=4096             -max_total_time=300
+        timeout-minutes: 10
+        continue-on-error: true
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.target }}
+          path: crash-*

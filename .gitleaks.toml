@@ -1,0 +1,56 @@
+title = "Phoenix Core GitLeaks Configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "phoenix-api-key"
+description = "Phoenix API Key"
+regex = '''(?i)(phoenix|qwen|deepseek|kimi)[-_]?api[-_]?key\s*[=:]\s*["']?[a-zA-Z0-9_-]{20,}["']?'''
+tags = ["apikey", "phoenix"]
+keywords = ["api_key", "apikey", "api-key"]
+
+[[rules]]
+id = "telegram-bot-token"
+description = "Telegram Bot Token"
+regex = '''\d{9,10}:[a-zA-Z0-9_-]{35}'''
+tags = ["telegram", "bot"]
+keywords = ["bot_token", "bot-token", "bottoken"]
+
+[[rules]]
+id = "github-pat-classic"
+description = "GitHub Personal Access Token (classic)"
+regex = '''ghp_[a-zA-Z0-9]{36}'''
+tags = ["github", "pat"]
+keywords = ["github_token", "github-token", "githubtoken"]
+
+[[rules]]
+id = "github-pat-fine-grained"
+description = "GitHub Fine-Grained PAT"
+regex = '''github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}'''
+tags = ["github", "pat"]
+keywords = ["github_pat"]
+
+[[rules]]
+id = "phoenix-secret-key"
+description = "Phoenix Application Secret Key"
+regex = '''(?i)phoenix[-_]?secret[-_]?key\s*[=:]\s*["']?[a-zA-Z0-9]{20,}["']?'''
+tags = ["secret", "phoenix"]
+keywords = ["secret_key", "secretkey", "secret-key"]
+
+[allowlist]
+description = "Global Allowlist"
+paths = [
+    '''\.gitleaks\.toml$''',
+    '''\.gitleaks\.allowlist\.toml$''',
+    '''tests/''',
+    '''docs/secrets-scanning\.md$''',
+    '''docs/secrets-management\.md$''',
+]
+commits = []
+regexes = [
+    '''EXAMPLE_TOKEN_1234567890''',
+    '''your-(api-key|token|secret-key)-here''',
+    '''sk-(test|example|demo)-[a-zA-Z0-9]+''',
+    '''ghp_(test|example|demo)_[a-zA-Z0-9]+''',
+]

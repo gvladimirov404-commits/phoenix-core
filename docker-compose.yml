@@ -1,0 +1,150 @@
+version: '3.8'
+
+services:
+  phoenix-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: phoenix-core
+    restart: unless-stopped
+
+    # Security: Non-root user
+    user: "1000:1000"
+
+    # Security: Read-only root filesystem
+    read_only: true
+
+    # Security: No new privileges
+    security_opt:
+      - no-new-privileges:true
+
+    # Security: Drop all capabilities, add only what's needed
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE  # Only if binding to ports < 1024
+
+    # Security: Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    env_file:
+      - .env
+
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+
+    volumes:
+      # Writable directories for read-only filesystem
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - /tmp:/app/tmp
+
+    networks:
+      - phoenix-network
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import phoenix_core; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+    # Security: Logging configuration
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "phoenix.service,phoenix.environment"
+
+  # Optional: Redis for caching and state management
+  redis:
+    image: redis:7-alpine
+    container_name: phoenix-redis
+    restart: unless-stopped
+
+    # Security: Non-root user
+    user: "999:999"
+
+    # Security: No new privileges
+    security_opt:
+      - no-new-privileges:true
+
+    # Security: Drop all capabilities
+    cap_drop:
+      - ALL
+
+    # Security: Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+    volumes:
+      - redis-data:/data
+
+    networks:
+      - phoenix-network
+
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Optional: Monitoring with Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: phoenix-prometheus
+    restart: unless-stopped
+
+    # Security: Non-root user
+    user: "65534:65534"
+
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+    ports:
+      - "127.0.0.1:9090:9090"  # Bind to localhost only
+
+    networks:
+      - phoenix-network
+
+    profiles:
+      - monitoring
+
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api=false'  # Disable admin API
+
+volumes:
+  redis-data:
+  prometheus-data:
+
+networks:
+  phoenix-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

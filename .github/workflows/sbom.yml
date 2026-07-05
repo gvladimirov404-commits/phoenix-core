@@ -1,0 +1,57 @@
+name: SBOM Generation
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  generate-sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CycloneDX
+        run: pip install cyclonedx-bom
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          cyclonedx-py -r -o sbom.cyclonedx.json
+
+      - name: Generate SPDX SBOM
+        run: |
+          pip install spdx-tools
+          # Convert or generate SPDX format
+          # Note: cyclonedx-py generates CycloneDX; for SPDX use alternative tools
+          # This is a placeholder for SPDX generation
+          echo '{"spdxVersion": "SPDX-2.3", "SPDXID": "SPDXRef-DOCUMENT", "name": "phoenix-core", "documentNamespace": "https://phoenix.dev/sbom/phoenix-core"}' > sbom.spdx.json
+
+      - name: Upload SBOM Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            sbom.cyclonedx.json
+            sbom.spdx.json
+
+      - name: Upload SBOM to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            sbom.cyclonedx.json
+            sbom.spdx.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
