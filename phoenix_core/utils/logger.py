@@ -5,7 +5,8 @@ Supports JSON, console (rich), and simple text formats.
 import logging
 import logging.handlers
 import sys
-from typing import Any, Dict, Optional
+from types import TracebackType
+from typing import Any, Dict, Optional, Type
 
 import structlog
 from rich.console import Console
@@ -96,12 +97,20 @@ def get_logger(name: str) -> structlog.BoundLogger:
 class LogContext:
     """Context manager for adding context to logs"""
     def __init__(self, **context: Any):
+        """Store key/value pairs to bind onto all logs emitted inside this context."""
         self.context = context
-        self.token = None
+        self.token: Optional[Dict[str, Any]] = None
 
     def __enter__(self) -> "LogContext":
+        """Bind the stored context vars for the duration of the `with` block."""
         self.token = structlog.contextvars.bind_contextvars(**self.context)
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
+        """Unbind the context vars bound by __enter__."""
         structlog.contextvars.unbind_contextvars(*self.context.keys())

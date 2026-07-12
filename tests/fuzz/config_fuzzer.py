@@ -23,7 +23,7 @@ def TestOneInput(data):
         # Try to create settings from fuzzed data
         if isinstance(config, dict):
             Settings(**config)
-    except (json.JSONDecodeError, Exception):
+    except Exception:
         pass
 
     # Fuzz AIProviderConfig

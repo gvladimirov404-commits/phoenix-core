@@ -31,3 +31,6 @@ memray>=1.8.0
 
 # Load Testing
 locust>=2.16.0
+
+# Fuzz Testing
+atheris>=2.3.0; python_version < "3.13"

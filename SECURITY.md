@@ -27,7 +27,7 @@ Instead, report it privately via one of the following channels:
 |---------|---------|
 | 🔐 GitHub Security Advisories | [Report privately](https://github.com/phoenix-team/phoenix-core/security/advisories/new) |
 | 📧 Email | `security@phoenix.dev` (GPG key below) |
-| 🔑 GPG Key | `0xABCD1234EFGH5678` — [download public key](https://phoenix.dev/security.gpg) |
+| 🔑 GPG Key | *Not yet published — check the GitHub Security Advisories link above for the current signing key* |
 
 ### What to Include
 

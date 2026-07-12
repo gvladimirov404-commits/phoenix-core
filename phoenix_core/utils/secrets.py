@@ -14,8 +14,15 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 class SecretManager:
     """Manages secrets with optional encryption"""
     def __init__(self, master_key: Optional[str] = None):
+        """Create a secret manager, optionally initializing encryption from a master key.
+
+        Args:
+            master_key: Master key used to derive the encryption cipher. Falls back to
+                the PHOENIX_SECRET_KEY environment variable if not given. If neither is
+                set, encrypt()/decrypt() will raise until one is provided.
+        """
         self._master_key = master_key or os.environ.get("PHOENIX_SECRET_KEY", "")
-        self._cipher = None
+        self._cipher: Optional[Fernet] = None
         if self._master_key:
             self._cipher = self._create_cipher()
 

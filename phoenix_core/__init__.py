@@ -1,15 +1,18 @@
 """
-Phoenix Core - Production-Ready Modular Python Framework
+Phoenix Core - Modular Python AI Framework (v0.1.0-alpha)
 
 A clean-architecture framework featuring:
-- Multi-model AI router (Qwen, DeepSeek, Kimi, extensible)
-- Telegram control interface
-- GitHub integration with Actions support
-- Plugin system
-- Docker & Termux compatibility
+- AI router with pluggable providers (DeepSeek implemented; the router/config
+  layer is designed for more providers, not yet built)
+- Telegram control interface (command dispatcher, conversation memory, AI Guard Layer)
+- Persistent conversation storage (SQLite backend, swappable via ConversationStore)
+- GitHub integration (repository info, issues)
+- Plugin system (registry scaffolding; discovery/loading not yet implemented)
+- Termux/Android-friendly (no heavy system dependencies)
 """
 
-__version__ = "1.0.0"
+from phoenix_core._version import __version__
+
 __author__ = "Phoenix Team"
 __license__ = "MIT"
 

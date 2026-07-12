@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from phoenix_core._version import __version__
 from phoenix_core.config.settings import Settings
 from phoenix_core.core.application import PhoenixApplication
 from phoenix_core.utils.logger import get_logger
@@ -19,7 +20,7 @@ logger = get_logger(__name__)
 
 
 @click.group()
-@click.version_option(version="1.0.0", prog_name="phoenix")
+@click.version_option(version=__version__, prog_name="phoenix")
 @click.option("--config", "-c", type=click.Path(), help="Path to configuration file")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
 @click.pass_context
@@ -35,7 +36,7 @@ def cli(ctx: click.Context, config: Optional[str], verbose: bool) -> None:
 
 @cli.command()
 @click.pass_context
-async def start(ctx: click.Context) -> None:
+def start(ctx: click.Context) -> None:
     """Start the Phoenix Core application"""
     config_path = ctx.obj.get("config_path")
     verbose = ctx.obj.get("verbose", False)
@@ -44,15 +45,18 @@ async def start(ctx: click.Context) -> None:
     banner = Text()
     banner.append("🔥 ", style="bold red")
     banner.append("Phoenix Core", style="bold yellow")
-    banner.append(" v1.0.0", style="dim")
+    banner.append(f" v{__version__}", style="dim")
     console.print(Panel(banner, border_style="red"))
 
-    try:
+    async def _run() -> None:
         settings = Settings.load(config_path)
         app = PhoenixApplication(settings)
         await app.start()
+
+    try:
+        asyncio.run(_run())
     except Exception as e:
-        logger.error(f"Failed to start application: {e}")
+        logger.error("Failed to start application", error=str(e))
         console.print(f"[red]Error: {e}[/red]")
         sys.exit(1)
 
@@ -95,8 +99,8 @@ def install_plugin(plugin_name: str) -> None:
         console.print(f"[red]Failed to install plugin: {e}[/red]")
 
 
-async def main() -> None:
-    """Async main entry point"""
+def main() -> None:
+    """Main entry point (sync so console_scripts / `python -m` can call it directly)"""
     cli()
 
 

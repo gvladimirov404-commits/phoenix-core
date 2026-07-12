@@ -2,7 +2,7 @@
 Dependency Injection Container using the Dependency Inversion Principle.
 Manages all service dependencies and their lifecycles.
 """
-from typing import Any, Dict, Optional, Type, TypeVar
+from typing import Any, Callable, Dict, Optional, Type, TypeVar
 
 from phoenix_core.utils.logger import get_logger
 
@@ -13,22 +13,28 @@ T = TypeVar("T")
 
 class Container:
     """Simple DI container for managing service dependencies"""
-    def __init__(self):
+    def __init__(self) -> None:
+        """Create an empty container (no services registered yet)."""
         self._services: Dict[str, Any] = {}
-        self._factories: Dict[str, Any] = {}
-        self._singletons: Dict[str, Any] = {}
+        self._factories: Dict[str, Dict[str, Any]] = {}
+        self._singletons: Dict[str, Optional[Any]] = {}
 
     def register(self, name: str, instance: Any) -> None:
         """Register a service instance"""
         self._services[name] = instance
-        logger.debug(f"Registered service: {name}")
+        logger.debug("Registered service", name=name)
 
-    def register_factory(self, name: str, factory: Any, singleton: bool = False) -> None:
+    def register_factory(
+        self,
+        name: str,
+        factory: Callable[[], Any],
+        singleton: bool = False,
+    ) -> None:
         """Register a factory function for lazy initialization"""
         self._factories[name] = {"factory": factory, "singleton": singleton}
         if singleton:
             self._singletons[name] = None
-        logger.debug(f"Registered factory: {name} (singleton={singleton})")
+        logger.debug("Registered factory", name=name, singleton=singleton)
 
     def resolve(self, name: str) -> Any:
         """Resolve a service by name"""
@@ -58,7 +64,7 @@ class Container:
         self._services.pop(name, None)
         self._factories.pop(name, None)
         self._singletons.pop(name, None)
-        logger.debug(f"Unregistered service: {name}")
+        logger.debug("Unregistered service", name=name)
 
     def clear(self) -> None:
         """Clear all registered services"""

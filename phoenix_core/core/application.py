@@ -4,28 +4,40 @@ Implements the Facade pattern for simplified interaction.
 """
 import asyncio
 import signal
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from phoenix_core.ai.router import AIRouter
 from phoenix_core.config.settings import Settings
 from phoenix_core.core.container import Container
 from phoenix_core.github.client import GitHubClient
+from phoenix_core.guard.cost_guard import CostGuard
+from phoenix_core.guard.guard import AIGuard
+from phoenix_core.guard.rate_limiter import RateLimiter
+from phoenix_core.guard.retry import RetryPolicy
+from phoenix_core.guard.sanitizer import OutputSanitizer
+from phoenix_core.memory.context_builder import ContextBuilder
+from phoenix_core.memory.manager import ConversationManager
 from phoenix_core.plugins.registry import PluginRegistry
 from phoenix_core.telegram.bot import TelegramBot
 from phoenix_core.utils.logger import configure_logging, get_logger
-from phoenix_core.utils.exceptions import PhoenixError
+from phoenix_core.utils.exceptions import PhoenixError, StorageError
 
 logger = get_logger(__name__)
 
 
 class PhoenixApplication:
     """Main application orchestrator"""
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings) -> None:
+        """Configure logging and build the DI container from settings.
+
+        Args:
+            settings: Fully loaded application Settings.
+        """
         self.settings = settings
         self.container = Container()
         self._running = False
         self._shutdown_event: Optional[asyncio.Event] = None
-        self._components: list = []
+        self._components: List[Any] = []
 
         configure_logging(
             level=settings.logging.level,
@@ -36,12 +48,15 @@ class PhoenixApplication:
             enable_console=settings.logging.enable_console,
         )
 
-        logger.info(f"Initializing Phoenix Core v{settings.app_version}")
+        logger.info("Initializing Phoenix Core", app_version=settings.app_version)
         self._initialize_container()
 
     def _initialize_container(self) -> None:
         """Register all services in the DI container"""
         self.container.register("settings", self.settings)
+        # Registered so components (e.g. Telegram command handlers) can reuse
+        # this application's health_check() instead of re-aggregating it themselves.
+        self.container.register("application", self)
 
         ai_router = AIRouter(
             self.settings.ai_providers,
@@ -49,6 +64,53 @@ class PhoenixApplication:
         )
         self.container.register("ai_router", ai_router)
         self._components.append(ai_router)
+
+        if self.settings.memory_backend != "sqlite":
+            logger.warning(
+                "Unsupported MEMORY_BACKEND configured — falling back to sqlite",
+                requested_backend=self.settings.memory_backend,
+            )
+
+        try:
+            conversation_manager = ConversationManager(
+                max_messages=self.settings.ai_max_conversation_messages,
+                db_path=self.settings.sqlite_database,
+            )
+        except StorageError as e:
+            # A corrupted/unreadable database file must not take down the
+            # whole app (Task 013, Задача 5 — "повредена SQLite база").
+            # Degrade to an isolated in-memory conversation store so every
+            # other component (Telegram, AI, GitHub) still starts normally;
+            # conversation history just won't persist across restarts until
+            # this is fixed on disk.
+            logger.error(
+                "Conversation storage unavailable, falling back to in-memory (no persistence)",
+                database_path=self.settings.sqlite_database,
+                error=str(e),
+            )
+            conversation_manager = ConversationManager(
+                max_messages=self.settings.ai_max_conversation_messages,
+            )
+        self.container.register("conversation_manager", conversation_manager)
+        self._components.append(conversation_manager)
+
+        context_builder = ContextBuilder(max_context_chars=self.settings.ai_max_context_chars)
+        self.container.register("context_builder", context_builder)
+
+        ai_guard = AIGuard(
+            rate_limiter=RateLimiter(
+                max_requests=self.settings.ai_rate_limit_requests,
+                window_seconds=self.settings.ai_rate_limit_window,
+            ),
+            cost_guard=CostGuard(
+                max_prompt_chars=self.settings.ai_max_prompt_length,
+                max_context_chars=self.settings.ai_guard_max_context_chars,
+            ),
+            retry_policy=RetryPolicy(max_retries=self.settings.ai_guard_max_retries),
+            sanitizer=OutputSanitizer(),
+        )
+        self.container.register("ai_guard", ai_guard)
+        self._components.append(ai_guard)
 
         if self.settings.telegram.bot_token.get_secret_value():
             telegram_bot = TelegramBot(
@@ -81,15 +143,16 @@ class PhoenixApplication:
         self._running = True
         self._shutdown_event = asyncio.Event()
 
+        loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            asyncio.get_event_loop().add_signal_handler(sig, self._signal_handler)
+            loop.add_signal_handler(sig, self._signal_handler)
 
         logger.info("Starting Phoenix Core components...")
 
         try:
             for component in self._components:
                 if hasattr(component, "start"):
-                    logger.debug(f"Starting component: {component.__class__.__name__}")
+                    logger.debug("Starting component", component=component.__class__.__name__)
                     await component.start()
 
             logger.info("Phoenix Core is running. Press Ctrl+C to stop.")
@@ -97,7 +160,7 @@ class PhoenixApplication:
             await self._shutdown_event.wait()
 
         except Exception as e:
-            logger.error(f"Application error: {e}")
+            logger.error("Application error", error=str(e))
             raise PhoenixError(f"Application failed: {e}") from e
         finally:
             await self.stop()
@@ -119,16 +182,20 @@ class PhoenixApplication:
         for component in reversed(self._components):
             if hasattr(component, "stop"):
                 try:
-                    logger.debug(f"Stopping component: {component.__class__.__name__}")
+                    logger.debug("Stopping component", component=component.__class__.__name__)
                     await component.stop()
                 except Exception as e:
-                    logger.error(f"Error stopping {component.__class__.__name__}: {e}")
+                    logger.error(
+                        "Error stopping component",
+                        component=component.__class__.__name__,
+                        error=str(e),
+                    )
 
         logger.info("Phoenix Core stopped")
 
     async def health_check(self) -> Dict[str, Any]:
         """Perform health check on all components"""
-        health = {"status": "healthy", "components": {}}
+        health: Dict[str, Any] = {"status": "healthy", "components": {}}
 
         for component in self._components:
             name = component.__class__.__name__

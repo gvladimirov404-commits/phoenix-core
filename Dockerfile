@@ -54,7 +54,6 @@ COPY --from=builder --chown=phoenix:phoenix /root/.local /home/phoenix/.local
 
 # Copy application code
 COPY --chown=phoenix:phoenix phoenix_core/ ./phoenix_core/
-COPY --chown=phoenix:phoenix config/ ./config/
 
 # Security: Switch to non-root user
 USER phoenix

@@ -229,7 +229,7 @@ import re
 
 def sanitize_input(text: str) -> str:
     # Remove control characters
-    text = re.sub(r'[ -]', '', text)
+    text = re.sub(r'[\x00-\x1f\x7f]', '', text)
     # Limit length
     return text[:4000]
 ```

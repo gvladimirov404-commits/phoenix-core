@@ -1,0 +1,105 @@
+"""Unit tests for phoenix_core.ai.deepseek_provider.DeepSeekProvider.
+
+All HTTP calls are mocked — no real network requests are made.
+"""
+from unittest.mock import AsyncMock, MagicMock
+
+import httpx
+import pytest
+
+from phoenix_core.ai.deepseek_provider import DeepSeekProvider
+from phoenix_core.utils.exceptions import (
+    AIProviderError,
+    AIProviderInvalidResponseError,
+    AIProviderRateLimitError,
+    AIProviderTimeoutError,
+)
+
+
+def make_provider(api_key: str = "sk-test", max_retries: int = 0) -> DeepSeekProvider:
+    return DeepSeekProvider(api_key=api_key, max_retries=max_retries)
+
+
+def fake_response(status_code: int, json_data: dict) -> MagicMock:
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = status_code
+    response.json.return_value = json_data
+    response.text = str(json_data)
+    return response
+
+
+class TestChatSuccess:
+    async def test_returns_standardized_ai_response(self, monkeypatch) -> None:
+        provider = make_provider()
+        ok_response = fake_response(
+            200,
+            {
+                "choices": [{"message": {"content": "hello there"}, "finish_reason": "stop"}],
+                "model": "deepseek-chat",
+                "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+            },
+        )
+        mock_post = AsyncMock(return_value=ok_response)
+        monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+        result = await provider.chat(messages=[{"role": "user", "content": "hi"}])
+
+        assert result.content == "hello there"
+        assert result.provider == "deepseek"
+        assert result.usage["total_tokens"] == 5
+        mock_post.assert_awaited_once()
+
+
+class TestChatErrors:
+    async def test_missing_api_key_raises_ai_provider_error(self) -> None:
+        provider = DeepSeekProvider(api_key="")
+        with pytest.raises(AIProviderError):
+            await provider.chat(messages=[{"role": "user", "content": "hi"}])
+
+    async def test_401_raises_ai_provider_error(self, monkeypatch) -> None:
+        provider = make_provider()
+        response = fake_response(401, {"error": {"message": "invalid api key"}})
+        monkeypatch.setattr(httpx.AsyncClient, "post", AsyncMock(return_value=response))
+        with pytest.raises(AIProviderError):
+            await provider.chat(messages=[{"role": "user", "content": "hi"}])
+
+    async def test_429_raises_rate_limit_error(self, monkeypatch) -> None:
+        provider = make_provider()
+        response = fake_response(429, {"error": {"message": "rate limited"}})
+        monkeypatch.setattr(httpx.AsyncClient, "post", AsyncMock(return_value=response))
+        with pytest.raises(AIProviderRateLimitError):
+            await provider.chat(messages=[{"role": "user", "content": "hi"}])
+
+    async def test_malformed_response_raises_invalid_response_error(self, monkeypatch) -> None:
+        provider = make_provider()
+        response = fake_response(200, {"unexpected": "shape"})
+        monkeypatch.setattr(httpx.AsyncClient, "post", AsyncMock(return_value=response))
+        with pytest.raises(AIProviderInvalidResponseError):
+            await provider.chat(messages=[{"role": "user", "content": "hi"}])
+
+    async def test_timeout_raises_ai_provider_timeout_error(self, monkeypatch) -> None:
+        provider = make_provider(max_retries=0)
+        mock_post = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
+        monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+        with pytest.raises(AIProviderTimeoutError):
+            await provider.chat(messages=[{"role": "user", "content": "hi"}])
+
+
+class TestHealthCheck:
+    async def test_configured_when_api_key_present(self) -> None:
+        provider = make_provider(api_key="sk-test")
+        result = await provider.health_check()
+        assert result["status"] == "configured"
+
+    async def test_misconfigured_when_api_key_missing(self) -> None:
+        provider = DeepSeekProvider(api_key="")
+        result = await provider.health_check()
+        assert result["status"] == "misconfigured"
+        assert "api_key is not set" in result["issues"]
+
+    async def test_health_check_makes_no_network_call(self, monkeypatch) -> None:
+        provider = make_provider()
+        mock_post = AsyncMock()
+        monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+        await provider.health_check()
+        mock_post.assert_not_awaited()

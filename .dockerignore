@@ -36,7 +36,6 @@ ENV/
 .vscode/
 
 # Tests
-tests/
 .pytest_cache/
 .coverage
 htmlcov/

@@ -6,8 +6,10 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pydantic import Field, SecretStr, validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from phoenix_core._version import __version__ as _PHOENIX_VERSION
 
 
 class AIProviderConfig(BaseSettings):
@@ -28,7 +30,7 @@ class TelegramConfig(BaseSettings):
     """Telegram bot configuration"""
     model_config = SettingsConfigDict(env_prefix="PHOENIX_TELEGRAM_")
 
-    bot_token: SecretStr = Field(..., description="Telegram Bot API token")
+    bot_token: SecretStr = Field(default=SecretStr(""), description="Telegram Bot API token")
     allowed_users: List[int] = Field(default=[], description="List of allowed user IDs")
     webhook_url: Optional[str] = Field(None, description="Webhook URL (if using webhooks)")
     webhook_port: int = Field(default=8443, ge=1, le=65535, description="Webhook port")
@@ -40,9 +42,9 @@ class GitHubConfig(BaseSettings):
     """GitHub integration configuration"""
     model_config = SettingsConfigDict(env_prefix="PHOENIX_GITHUB_")
 
-    token: SecretStr = Field(..., description="GitHub personal access token")
-    owner: str = Field(..., description="Repository owner/username")
-    repo: str = Field(..., description="Repository name")
+    token: SecretStr = Field(default=SecretStr(""), description="GitHub personal access token")
+    owner: str = Field(default="", description="Repository owner/username")
+    repo: str = Field(default="", description="Repository name")
     default_branch: str = Field(default="main", description="Default branch")
     actions_enabled: bool = Field(default=True, description="Enable GitHub Actions integration")
     webhook_secret: Optional[SecretStr] = Field(None, description="Webhook secret for verification")
@@ -62,8 +64,10 @@ class LoggingConfig(BaseSettings):
     backup_count: int = Field(default=5, description="Number of backup files")
     enable_console: bool = Field(default=True, description="Enable console output")
 
-    @validator("level")
+    @field_validator("level")
+    @classmethod
     def validate_level(cls, v: str) -> str:
+        """Normalize and validate the log level against the standard logging levels."""
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if v.upper() not in valid_levels:
             raise ValueError(f"Invalid log level: {v}. Must be one of {valid_levels}")
@@ -87,7 +91,7 @@ class SecurityConfig(BaseSettings):
     """Security configuration"""
     model_config = SettingsConfigDict(env_prefix="PHOENIX_SECURITY_")
 
-    secret_key: SecretStr = Field(..., description="Application secret key")
+    secret_key: SecretStr = Field(default=SecretStr(""), description="Application secret key")
     encrypt_logs: bool = Field(default=False, description="Encrypt log files")
     allowed_hosts: List[str] = Field(default=["*"], description="Allowed hosts")
     rate_limit: int = Field(default=100, description="Requests per minute limit")
@@ -104,15 +108,45 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = Field(default="Phoenix Core", description="Application name")
-    app_version: str = Field(default="1.0.0", description="Application version")
+    app_version: str = Field(default=_PHOENIX_VERSION, description="Application version")
     debug: bool = Field(default=False, description="Debug mode")
     environment: str = Field(default="production", description="Environment (development, staging, production)")
 
     # AI Providers
     ai_providers: List[AIProviderConfig] = Field(default=[], description="AI provider configurations")
-    ai_default_provider: str = Field(default="qwen", description="Default AI provider")
+    ai_default_provider: str = Field(default="deepseek", description="Default AI provider")
     ai_fallback_enabled: bool = Field(default=True, description="Enable fallback between providers")
     ai_request_timeout: int = Field(default=60, ge=1, le=300, description="Global AI request timeout")
+    ai_max_prompt_length: int = Field(
+        default=4000, ge=1, description="Maximum allowed /ask prompt length, in characters"
+    )
+    ai_max_conversation_messages: int = Field(
+        default=20, ge=1, description="Max messages kept per user conversation (Conversation Memory Engine)"
+    )
+    ai_max_context_chars: int = Field(
+        default=8000, ge=1, description="Max combined character length of context sent to the AI provider"
+    )
+    ai_rate_limit_requests: int = Field(
+        default=10, ge=1, description="Max AI requests allowed per user within one rate-limit window"
+    )
+    ai_rate_limit_window: int = Field(
+        default=60, ge=1, description="Rate-limit window length, in seconds"
+    )
+    ai_guard_max_context_chars: int = Field(
+        default=12000, ge=1,
+        description="Hard ceiling (chars) on the assembled context the AI Guard Layer will allow through",
+    )
+    ai_guard_max_retries: int = Field(
+        default=2, ge=0, description="Max retry attempts the AI Guard Layer makes for transient provider errors"
+    )
+    memory_backend: str = Field(
+        default="sqlite",
+        description="Conversation Memory storage backend. Only 'sqlite' is implemented today.",
+    )
+    sqlite_database: str = Field(
+        default="phoenix.db",
+        description="Path to the SQLite database file used for persistent conversation storage",
+    )
 
     # Telegram
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
@@ -133,12 +167,41 @@ class Settings(BaseSettings):
     data_dir: str = Field(default="./data", description="Data directory")
     temp_dir: str = Field(default="./temp", description="Temporary directory")
 
-    @validator("environment")
+    @field_validator("environment")
+    @classmethod
     def validate_environment(cls, v: str) -> str:
+        """Normalize and validate the environment name against the supported set."""
         valid_envs = ["development", "staging", "production", "testing"]
         if v.lower() not in valid_envs:
             raise ValueError(f"Invalid environment: {v}. Must be one of {valid_envs}")
         return v.lower()
+
+    @model_validator(mode="after")
+    def _populate_ai_providers_from_env(self) -> "Settings":
+        """Build ai_providers from flat PHOENIX_AI_DEEPSEEK_* env vars if not set explicitly.
+
+        This keeps AIProviderConfig (the already-planned per-provider schema) as the
+        single source of truth, while letting the single-provider V1 setup be
+        configured with plain env vars instead of a JSON blob.
+        """
+        if self.ai_providers:
+            return self
+
+        deepseek_api_key = os.environ.get("PHOENIX_AI_DEEPSEEK_API_KEY")
+        if deepseek_api_key:
+            self.ai_providers = [
+                AIProviderConfig(
+                    name="deepseek",
+                    api_key=deepseek_api_key,
+                    base_url=os.environ.get("PHOENIX_AI_DEEPSEEK_BASE_URL") or None,
+                    model=os.environ.get("PHOENIX_AI_DEEPSEEK_MODEL", "deepseek-chat"),
+                    timeout=int(os.environ.get("PHOENIX_AI_DEEPSEEK_TIMEOUT", "30")),
+                    max_retries=int(os.environ.get("PHOENIX_AI_DEEPSEEK_MAX_RETRIES", "3")),
+                    priority=1,
+                    enabled=True,
+                )
+            ]
+        return self
 
     @classmethod
     def load(cls, config_path: Optional[str] = None) -> "Settings":
