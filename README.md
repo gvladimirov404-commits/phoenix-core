@@ -3,16 +3,31 @@ Modular Python AI framework with a Telegram control interface, GitHub integratio
 
 **Version:** 0.1.0-alpha — single source of truth: `phoenix_core/_version.py`.
 
-## AI Layer (V1 — single provider: DeepSeek)
+## AI Layer (V1 — DeepSeek and Groq)
 
 Set the following environment variables (e.g. in a local `.env` file — see `.env.example`):
 
 ```bash
-PHOENIX_AI_DEEPSEEK_API_KEY=your-deepseek-api-key   # required to enable the AI layer
+# DeepSeek — one of the two supported providers
+PHOENIX_AI_DEEPSEEK_API_KEY=your-deepseek-api-key   # required to enable DeepSeek
 PHOENIX_AI_DEEPSEEK_MODEL=deepseek-chat              # optional, defaults to deepseek-chat
 PHOENIX_AI_DEEPSEEK_BASE_URL=https://api.deepseek.com # optional, defaults shown
 PHOENIX_AI_DEEPSEEK_TIMEOUT=30                        # optional, seconds
 PHOENIX_AI_DEEPSEEK_MAX_RETRIES=3                     # optional
+
+# Groq — the other supported provider (Task 014). Env var names are unprefixed
+# (GROQ_*, not PHOENIX_AI_GROQ_*) to match Groq's own SDK/docs convention.
+GROQ_API_KEY=your-groq-api-key                        # required to enable Groq
+GROQ_MODEL=llama-3.3-70b-versatile                    # optional, defaults shown (Groq's model roster changes
+                                                       # fairly often — check https://console.groq.com/docs/models
+                                                       # or GET {base_url}/models if requests start failing)
+GROQ_BASE_URL=https://api.groq.com/openai/v1          # optional, defaults shown
+GROQ_TIMEOUT=30                                       # optional, seconds
+GROQ_MAX_RETRIES=3                                    # optional
+
+# Both providers can be configured at once; this picks which one AIRouter uses by default.
+AI_DEFAULT_PROVIDER=deepseek                          # optional, "deepseek" (default) or "groq"
+
 AI_MAX_PROMPT_LENGTH=4000                             # optional, max /ask prompt length in characters
 AI_MAX_CONVERSATION_MESSAGES=20                       # optional, max messages kept per user conversation
 AI_MAX_CONTEXT_CHARS=8000                             # optional, max combined chars sent as context per request
@@ -23,6 +38,16 @@ AI_GUARD_MAX_RETRIES=2                                # optional, max retries fo
 MEMORY_BACKEND=sqlite                                 # optional, conversation storage backend (only 'sqlite' implemented)
 SQLITE_DATABASE=phoenix.db                            # optional, path to the SQLite database file
 ```
+
+Both DeepSeek and Groq are implemented against the same `BaseAIProvider`
+interface and the same OpenAI-compatible chat completions request shape —
+`AIRouter`, AI Guard, Conversation Memory, and the Telegram layer work
+identically regardless of which is selected. Switching providers is a
+config-only change: set `AI_DEFAULT_PROVIDER=groq` and `GROQ_API_KEY`,
+nothing else needs to change. If `AI_DEFAULT_PROVIDER` doesn't match any
+configured provider (e.g. `GROQ_API_KEY` is set but `AI_DEFAULT_PROVIDER`
+is left at its default `deepseek`), `/ask` degrades to a friendly
+"provider not configured" message rather than crashing.
 
 Run locally:
 

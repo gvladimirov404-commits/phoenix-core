@@ -178,18 +178,24 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _populate_ai_providers_from_env(self) -> "Settings":
-        """Build ai_providers from flat PHOENIX_AI_DEEPSEEK_* env vars if not set explicitly.
+        """Build ai_providers from flat env vars if not set explicitly.
 
         This keeps AIProviderConfig (the already-planned per-provider schema) as the
-        single source of truth, while letting the single-provider V1 setup be
-        configured with plain env vars instead of a JSON blob.
+        single source of truth, while letting providers be configured with plain
+        env vars instead of a JSON blob. DeepSeek uses PHOENIX_AI_DEEPSEEK_* (Task 003);
+        Groq uses plain GROQ_* (Task 014, matching Groq's own SDK/docs convention).
+        Both can be configured at once — AI_DEFAULT_PROVIDER picks which one AIRouter
+        uses by default; ConversationManager, AI Guard, and everything else is
+        unaffected by which provider(s) are configured.
         """
         if self.ai_providers:
             return self
 
+        providers: List[AIProviderConfig] = []
+
         deepseek_api_key = os.environ.get("PHOENIX_AI_DEEPSEEK_API_KEY")
         if deepseek_api_key:
-            self.ai_providers = [
+            providers.append(
                 AIProviderConfig(
                     name="deepseek",
                     api_key=deepseek_api_key,
@@ -200,7 +206,25 @@ class Settings(BaseSettings):
                     priority=1,
                     enabled=True,
                 )
-            ]
+            )
+
+        groq_api_key = os.environ.get("GROQ_API_KEY")
+        if groq_api_key:
+            providers.append(
+                AIProviderConfig(
+                    name="groq",
+                    api_key=groq_api_key,
+                    base_url=os.environ.get("GROQ_BASE_URL") or None,
+                    model=os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                    timeout=int(os.environ.get("GROQ_TIMEOUT", "30")),
+                    max_retries=int(os.environ.get("GROQ_MAX_RETRIES", "3")),
+                    priority=2,
+                    enabled=True,
+                )
+            )
+
+        if providers:
+            self.ai_providers = providers
         return self
 
     @classmethod

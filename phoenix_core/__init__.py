@@ -2,8 +2,8 @@
 Phoenix Core - Modular Python AI Framework (v0.1.0-alpha)
 
 A clean-architecture framework featuring:
-- AI router with pluggable providers (DeepSeek implemented; the router/config
-  layer is designed for more providers, not yet built)
+- AI router with pluggable providers (DeepSeek and Groq implemented; the
+  router/config layer is designed for more, not yet built)
 - Telegram control interface (command dispatcher, conversation memory, AI Guard Layer)
 - Persistent conversation storage (SQLite backend, swappable via ConversationStore)
 - GitHub integration (repository info, issues)

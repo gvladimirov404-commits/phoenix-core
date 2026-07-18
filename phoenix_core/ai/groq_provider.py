@@ -1,9 +1,19 @@
 """
-DeepSeek AI provider — the single real provider for the V1 AI foundation.
+Groq AI provider — second provider added to the V1 AI foundation (Task 014).
 
-Implements phoenix_core.ai.base.BaseAIProvider against DeepSeek's
-OpenAI-compatible chat completions API. No other providers are
-implemented at this stage (see Task 003 scope).
+Implements phoenix_core.ai.base.BaseAIProvider against Groq's
+OpenAI-compatible chat completions API
+(https://api.groq.com/openai/v1/chat/completions). Mirrors
+phoenix_core.ai.deepseek_provider.DeepSeekProvider's structure exactly —
+same retry loop, same streaming approach, same "health_check() validates
+config only, never makes a network call" rule — so AIRouter, AI Guard,
+ConversationManager, and everything above them keeps working unchanged
+regardless of which of the two is selected as AI_DEFAULT_PROVIDER.
+
+Error mapping is slightly more granular than DeepSeekProvider's (separate
+401/403/404 messages instead of one shared 401/403 message) per Task 014's
+explicit request — every case still raises one of the *existing*
+AIProviderError family, no new exception classes were added.
 """
 import asyncio
 import json
@@ -24,19 +34,21 @@ from phoenix_core.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
-# Known DeepSeek chat models at time of writing. Not fetched dynamically —
-# dynamic model discovery is out of scope for this provider.
-_AVAILABLE_MODELS = ["deepseek-chat", "deepseek-reasoner"]
+# Known Groq production chat models at time of writing. Not fetched
+# dynamically (same choice as DeepSeekProvider) — Groq's roster changes
+# fairly often, so treat this as a starting point, not a source of truth;
+# GET {base_url}/models with a valid key returns the live list.
+_AVAILABLE_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
 # Retries only make sense for transient failures, not for auth/client errors.
 _RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
 
 
-class DeepSeekProvider(BaseAIProvider):
-    """DeepSeek chat completion provider (OpenAI-compatible API)."""
+class GroqProvider(BaseAIProvider):
+    """Groq chat completion provider (OpenAI-compatible API)."""
 
     def __init__(
         self,
@@ -46,12 +58,12 @@ class DeepSeekProvider(BaseAIProvider):
         timeout: int = 30,
         max_retries: int = 3,
     ):
-        """Create a DeepSeek provider instance.
+        """Create a Groq provider instance.
 
         Args:
-            api_key: DeepSeek API key.
-            model: Default model (defaults to "deepseek-chat").
-            base_url: Override for DeepSeek's API base URL.
+            api_key: Groq API key.
+            model: Default model (defaults to "llama-3.3-70b-versatile").
+            base_url: Override for Groq's API base URL.
             timeout: Request timeout in seconds.
             max_retries: Max retry attempts for transient (5xx) failures.
         """
@@ -66,11 +78,11 @@ class DeepSeekProvider(BaseAIProvider):
     @property
     def name(self) -> str:
         """Provider identifier used in AIResponse.provider and router logging."""
-        return "deepseek"
+        return "groq"
 
     @property
     def available_models(self) -> List[str]:
-        """Known DeepSeek chat models (not fetched dynamically — see module docstring)."""
+        """Known Groq production chat models (not fetched dynamically — see module docstring)."""
         return list(_AVAILABLE_MODELS)
 
     def _get_client(self) -> httpx.AsyncClient:
@@ -99,7 +111,7 @@ class DeepSeekProvider(BaseAIProvider):
         max_tokens: Optional[int] = None,
         **kwargs: Any,
     ) -> AIResponse:
-        """Send a non-streaming chat completion request to DeepSeek (with retries)."""
+        """Send a non-streaming chat completion request to Groq (with retries)."""
         resolved_model = self.validate_model(model)
         payload: Dict[str, Any] = {
             "model": resolved_model,
@@ -117,7 +129,7 @@ class DeepSeekProvider(BaseAIProvider):
             content = choice["message"]["content"]
         except (KeyError, IndexError, TypeError) as e:
             raise AIProviderInvalidResponseError(
-                f"DeepSeek response missing expected fields: {e}"
+                f"Groq response missing expected fields: {e}"
             ) from e
 
         usage = data.get("usage", {}) or {}
@@ -141,7 +153,7 @@ class DeepSeekProvider(BaseAIProvider):
         max_tokens: Optional[int] = None,
         **kwargs: Any,
     ) -> AsyncIterator[str]:
-        """Stream a chat completion response from DeepSeek as SSE `data:` chunks."""
+        """Stream a chat completion response from Groq as SSE `data:` chunks."""
         resolved_model = self.validate_model(model)
         payload: Dict[str, Any] = {
             "model": resolved_model,
@@ -172,9 +184,9 @@ class DeepSeekProvider(BaseAIProvider):
                     if delta:
                         yield delta
         except httpx.TimeoutException as e:
-            raise AIProviderTimeoutError(f"DeepSeek streaming request timed out: {e}") from e
+            raise AIProviderTimeoutError(f"Groq streaming request timed out: {e}") from e
         except httpx.TransportError as e:
-            raise AIProviderConnectionError(f"DeepSeek streaming connection failed: {e}") from e
+            raise AIProviderConnectionError(f"Groq streaming connection failed: {e}") from e
 
     async def health_check(self) -> Dict[str, Any]:
         """Validate local configuration only — no network request is made."""
@@ -195,7 +207,7 @@ class DeepSeekProvider(BaseAIProvider):
 
     async def _post_with_retries(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not self.api_key:
-            raise AIProviderError("DeepSeek API key is not configured")
+            raise AIProviderError("Groq API key is not configured")
 
         client = self._get_client()
         attempt = 0
@@ -205,20 +217,20 @@ class DeepSeekProvider(BaseAIProvider):
             try:
                 response = await client.post(path, json=payload)
             except httpx.TimeoutException as e:
-                last_error = AIProviderTimeoutError(f"DeepSeek request timed out: {e}")
+                last_error = AIProviderTimeoutError(f"Groq request timed out: {e}")
             except httpx.TransportError as e:
-                last_error = AIProviderConnectionError(f"DeepSeek connection failed: {e}")
+                last_error = AIProviderConnectionError(f"Groq connection failed: {e}")
             else:
                 if response.status_code == 200:
                     try:
                         return response.json()
                     except ValueError as e:
                         raise AIProviderInvalidResponseError(
-                            f"DeepSeek returned non-JSON response: {e}"
+                            f"Groq returned non-JSON response: {e}"
                         ) from e
                 if response.status_code in _RETRYABLE_STATUS_CODES:
                     last_error = AIProviderError(
-                        f"DeepSeek server error (HTTP {response.status_code})"
+                        f"Groq server error (HTTP {response.status_code})"
                     )
                 else:
                     await self._raise_for_status(response)
@@ -227,7 +239,7 @@ class DeepSeekProvider(BaseAIProvider):
             if attempt <= self.max_retries:
                 backoff = min(2 ** attempt * 0.5, 8.0)
                 logger.debug(
-                    "DeepSeek request failed, retrying",
+                    "Groq request failed, retrying",
                     attempt=attempt,
                     max_retries=self.max_retries,
                     backoff_seconds=backoff,
@@ -238,7 +250,14 @@ class DeepSeekProvider(BaseAIProvider):
         raise last_error
 
     async def _raise_for_status(self, response: httpx.Response) -> None:
-        """Raise the appropriate standardized exception for a non-200 response."""
+        """Raise the appropriate standardized exception for a non-200 response.
+
+        Task 014, Задача 5 asks for distinct handling of 401/403/404/429/5xx.
+        No new exception classes were introduced (per the task's explicit
+        constraint) — 401/403/404/5xx all raise the existing AIProviderError,
+        each with a distinct, clearly-labeled message; 429 uses the existing
+        AIProviderRateLimitError, which was already a perfect fit.
+        """
         status = response.status_code
         try:
             body = response.json()
@@ -246,13 +265,17 @@ class DeepSeekProvider(BaseAIProvider):
         except ValueError:
             message = response.text
 
-        if status in (401, 403):
-            raise AIProviderError(f"DeepSeek authentication failed (HTTP {status}): {message}")
+        if status == 401:
+            raise AIProviderError(f"Groq authentication failed (HTTP 401): {message}")
+        if status == 403:
+            raise AIProviderError(f"Groq access forbidden (HTTP 403): {message}")
+        if status == 404:
+            raise AIProviderError(f"Groq endpoint not found (HTTP 404): {message}")
         if status == 429:
-            raise AIProviderRateLimitError(f"DeepSeek rate limit exceeded: {message}")
+            raise AIProviderRateLimitError(f"Groq rate limit exceeded: {message}")
         if status == 400:
-            raise AIProviderInvalidResponseError(f"DeepSeek rejected the request (HTTP 400): {message}")
-        raise AIProviderError(f"DeepSeek request failed (HTTP {status}): {message}")
+            raise AIProviderInvalidResponseError(f"Groq rejected the request (HTTP 400): {message}")
+        raise AIProviderError(f"Groq request failed (HTTP {status}): {message}")
 
     async def __aexit__(
         self,

@@ -1,16 +1,18 @@
 """
-AI provider router — V1 single-provider foundation.
+AI provider router.
 
-Accepts a chat request, validates input, resolves the one configured
-provider, and returns a standardized AIResponse. Fallback, multi-provider
-selection, load balancing, and cost optimization are explicitly out of
-scope for this stage (see Task 003).
+Accepts a chat request, validates input, resolves the configured
+provider (DeepSeek or Groq — see _PROVIDER_CLASSES), and returns a
+standardized AIResponse. Fallback, load balancing, and cost optimization
+are explicitly out of scope (see Task 003; Task 014 added the second
+provider without changing anything else in this file).
 """
 from typing import Any, AsyncIterator, Dict, List, Optional, Type
 from uuid import uuid4
 
 from phoenix_core.ai.base import AIResponse, BaseAIProvider
 from phoenix_core.ai.deepseek_provider import DeepSeekProvider
+from phoenix_core.ai.groq_provider import GroqProvider
 from phoenix_core.config.settings import AIProviderConfig
 from phoenix_core.utils.exceptions import ConfigurationError, AIProviderNotFoundError, ValidationError
 from phoenix_core.utils.logger import get_logger
@@ -18,9 +20,12 @@ from phoenix_core.utils.logger import get_logger
 logger = get_logger(__name__)
 
 # Maps a configured provider name to its concrete implementation.
-# Only "deepseek" is implemented at this stage — see Task 003 scope.
+# "deepseek" and "groq" are implemented (Task 003, Task 014) — both are
+# OpenAI-compatible chat completions APIs, so adding a new one here is the
+# only router change a future provider needs (see AIRouter.register_provider).
 _PROVIDER_CLASSES: Dict[str, Type[BaseAIProvider]] = {
     "deepseek": DeepSeekProvider,
+    "groq": GroqProvider,
 }
 
 
@@ -83,7 +88,7 @@ class AIRouter:
             raise ConfigurationError(
                 "No AI provider is configured. Set the required environment "
                 "variables for at least one supported provider (e.g. "
-                "PHOENIX_AI_DEEPSEEK_API_KEY)."
+                "PHOENIX_AI_DEEPSEEK_API_KEY or GROQ_API_KEY)."
             )
 
         resolved_name = name or self.default_provider

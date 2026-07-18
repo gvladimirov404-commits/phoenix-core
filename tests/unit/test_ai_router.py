@@ -1,4 +1,4 @@
-"""Unit tests for phoenix_core.ai.router.AIRouter (single-provider MVP)."""
+"""Unit tests for phoenix_core.ai.router.AIRouter (multi-provider: DeepSeek + Groq)."""
 import pytest
 
 from phoenix_core.ai.router import AIRouter
@@ -120,3 +120,50 @@ class TestHealthCheck:
         result = await router.health_check()
         assert result["status"] == "healthy"
         assert "mock" in result["providers"]
+
+
+class TestMultiProviderConstruction:
+    """Task 014: AIRouter builds real DeepSeek/Groq provider instances from AIProviderConfig."""
+
+    def test_builds_a_groq_provider_from_config(self) -> None:
+        from pydantic import SecretStr
+
+        from phoenix_core.ai.groq_provider import GroqProvider
+        from phoenix_core.config.settings import AIProviderConfig
+
+        config = AIProviderConfig(name="groq", api_key=SecretStr("gsk-test"), model="llama-3.3-70b-versatile")
+        router = AIRouter(providers=[config], default_provider="groq")
+
+        provider = router.get_provider("groq")
+        assert isinstance(provider, GroqProvider)
+        assert provider.name == "groq"
+
+    def test_builds_both_deepseek_and_groq_when_both_configured(self) -> None:
+        from pydantic import SecretStr
+
+        from phoenix_core.ai.deepseek_provider import DeepSeekProvider
+        from phoenix_core.ai.groq_provider import GroqProvider
+        from phoenix_core.config.settings import AIProviderConfig
+
+        configs = [
+            AIProviderConfig(name="deepseek", api_key=SecretStr("sk-test")),
+            AIProviderConfig(name="groq", api_key=SecretStr("gsk-test")),
+        ]
+        router = AIRouter(providers=configs, default_provider="groq")
+
+        assert isinstance(router.get_provider("deepseek"), DeepSeekProvider)
+        assert isinstance(router.get_provider("groq"), GroqProvider)
+        assert isinstance(router.get_provider(), GroqProvider)  # default_provider="groq"
+        assert set(router.list_providers()) == {"deepseek", "groq"}
+
+    def test_switching_default_provider_to_groq_changes_nothing_else(self) -> None:
+        """AI_DEFAULT_PROVIDER=groq must not require any other config change (Task 014 acceptance criterion)."""
+        from pydantic import SecretStr
+
+        from phoenix_core.config.settings import AIProviderConfig
+
+        config = AIProviderConfig(name="groq", api_key=SecretStr("gsk-test"))
+        router = AIRouter(providers=[config], default_provider="groq")
+
+        assert router.is_provider_available() is True
+        assert router.get_provider().name == "groq"

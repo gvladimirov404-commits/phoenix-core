@@ -10,7 +10,7 @@ Required for the bot to actually do anything useful — see `.env.example`
 for the full list with defaults. At minimum for a working deployment:
 
 - [ ] `PHOENIX_TELEGRAM_BOT_TOKEN` set (bot won't start without it — `TelegramBot.start()` raises `ConfigurationError` if empty)
-- [ ] `PHOENIX_AI_DEEPSEEK_API_KEY` set, if `/ask` is expected to work (without it, `/ask` degrades to a friendly "AI слоят не е конфигуриран" message rather than failing)
+- [ ] `PHOENIX_AI_DEEPSEEK_API_KEY` **or** `GROQ_API_KEY` set (with matching `AI_DEFAULT_PROVIDER`), if `/ask` is expected to work — without either, `/ask` degrades to a friendly "AI слоят не е конфигуриран" message rather than failing (Task 014 added Groq as a second provider; both use the same request format, so switching is config-only)
 - [ ] `PHOENIX_GITHUB_TOKEN` / `PHOENIX_GITHUB_OWNER` / `PHOENIX_GITHUB_REPO` set, if `/repo` and `/issues` are expected to work (otherwise they degrade to a friendly "не е конфигуриран" message)
 - [ ] `SQLITE_DATABASE` points to a writable path (default `phoenix.db`, relative to the working directory — confirm this is what's intended before deploying, especially under Termux/Codespaces where the working directory can vary between runs)
 - [ ] Rate limit / cost guard / retry defaults (`AI_RATE_LIMIT_REQUESTS`, `AI_RATE_LIMIT_WINDOW`, `AI_MAX_PROMPT_LENGTH`, `AI_MAX_CONVERSATION_MESSAGES`, `AI_MAX_CONTEXT_CHARS`, `AI_GUARD_MAX_CONTEXT_CHARS`, `AI_GUARD_MAX_RETRIES`) reviewed — the shipped defaults are reasonable for a single-user/small-group bot, revisit if usage patterns differ

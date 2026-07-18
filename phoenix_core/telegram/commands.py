@@ -93,7 +93,7 @@ _COMPONENT_LABELS = {
     "AIGuard": "AI Guard Layer",
 }
 
-_STATUS_ICONS = {"healthy": "✅", "unhealthy": "❌"}
+_STATUS_ICONS = {"healthy": "✅", "unhealthy": "❌", "configured": "✅"}
 
 
 def _status_icon(status: str) -> str:
