@@ -35,3 +35,8 @@ logs/
 *.log
 data/
 temp/
+
+# Task 016 live validation artifacts (never commit real logs/tokens)
+task016_report.txt
+live_app.log
+.task016_tmp/

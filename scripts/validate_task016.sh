@@ -16,6 +16,11 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+# Termux's /tmp is NOT writable (Android sandbox) — use a repo-local temp
+# dir instead, which works everywhere (Termux, Codespaces, plain Linux).
+WORK_TMP="$(pwd)/.task016_tmp"
+mkdir -p "$WORK_TMP"
+
 REPORT="task016_report.txt"
 echo "Task 016 — Live Validation Report" > "$REPORT"
 echo "Generated: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> "$REPORT"
@@ -39,13 +44,22 @@ else
     exit 1
 fi
 
-pip install -r requirements-dev.txt 2>&1 | tail -10
+pip install -r requirements-dev.txt 2>&1 | tail -15
+DEV_INSTALL_STATUS=${PIPESTATUS[0]}
+if [ "$DEV_INSTALL_STATUS" -ne 0 ]; then
+    echo "" | tee -a "$REPORT"
+    echo "NOTE: 'pip install -r requirements-dev.txt' failed (likely 'memray' —" | tee -a "$REPORT"
+    echo "it does not support Android/Termux by its own design, unrelated to" | tee -a "$REPORT"
+    echo "Phoenix Core). Installing just the testing packages directly instead," | tee -a "$REPORT"
+    echo "so pytest is guaranteed available for section 4 below." | tee -a "$REPORT"
+    pip install --force-reinstall "pytest>=7.4.0" "pytest-asyncio>=0.21.0" "pytest-cov>=4.1.0" "pytest-mock>=3.11.0" "pytest-xdist>=3.3.0" 2>&1 | tail -10
+fi
 
 # ----------------------------------------------------------------------
 section "2. Entry point check"
 # ----------------------------------------------------------------------
 if command -v phoenix >/dev/null 2>&1; then
-    phoenix --help > /tmp/phoenix_help.txt 2>&1
+    phoenix --help > "$WORK_TMP/phoenix_help.txt" 2>&1
     echo "RESULT: 'phoenix' command is on PATH and --help works" | tee -a "$REPORT"
 else
     echo "RESULT: 'phoenix' command NOT found on PATH after install" | tee -a "$REPORT"
@@ -66,21 +80,21 @@ print('All core imports OK, version:', phoenix_core.__version__)
 # ----------------------------------------------------------------------
 section "4. Full pytest run"
 # ----------------------------------------------------------------------
-pytest -v --tb=short 2>&1 | tee /tmp/pytest_output.txt | tail -60
+pytest -v --tb=short 2>&1 | tee "$WORK_TMP/pytest_output.txt" | tail -60
 echo "" >> "$REPORT"
 echo "Full pytest summary line:" >> "$REPORT"
-tail -20 /tmp/pytest_output.txt | grep -E "passed|failed|error|skipped|xfail" >> "$REPORT" || echo "(no summary line found — check /tmp/pytest_output.txt)" >> "$REPORT"
+tail -20 "$WORK_TMP/pytest_output.txt" | grep -E "passed|failed|error|skipped|xfail" >> "$REPORT" || echo "(no summary line found — check "$WORK_TMP/pytest_output.txt")" >> "$REPORT"
 
 # ----------------------------------------------------------------------
 section "5. Automated SQLite restart persistence test (no Telegram/Groq needed)"
 # ----------------------------------------------------------------------
-rm -f /tmp/task016_restart_test.db
+rm -f "$WORK_TMP/task016_restart_test.db"
 python3 -c "
 import asyncio
 from phoenix_core.memory.manager import ConversationManager
 
 async def main():
-    db_path = '/tmp/task016_restart_test.db'
+    db_path = '"$WORK_TMP/task016_restart_test.db"'
 
     m1 = ConversationManager(max_messages=20, db_path=db_path)
     m1.add_message(999, 'user', 'session 1 message')
@@ -96,7 +110,7 @@ async def main():
 
 asyncio.run(main())
 " 2>&1 | tee -a "$REPORT"
-rm -f /tmp/task016_restart_test.db
+rm -f "$WORK_TMP/task016_restart_test.db"
 
 # ----------------------------------------------------------------------
 section "6. Real application startup + health_check + graceful shutdown"
@@ -123,15 +137,15 @@ tail -40 live_app.log >> "$REPORT"
 
 echo "" >> "$REPORT"
 echo "--- Resource leak checks against live_app.log ---" >> "$REPORT"
-if grep -iE "unclosed.*client|unclosed.*session|ResourceWarning" live_app.log > /tmp/leak_check.txt; then
+if grep -iE "unclosed.*client|unclosed.*session|ResourceWarning" live_app.log > "$WORK_TMP/leak_check.txt"; then
     echo "FOUND POTENTIAL LEAKS:" >> "$REPORT"
-    cat /tmp/leak_check.txt >> "$REPORT"
+    cat "$WORK_TMP/leak_check.txt" >> "$REPORT"
 else
     echo "RESULT: no 'unclosed client/session' or ResourceWarning lines found" >> "$REPORT"
 fi
-if grep -iE "sqlite.*warning|DatabaseError" live_app.log > /tmp/sqlite_check.txt; then
+if grep -iE "sqlite.*warning|DatabaseError" live_app.log > "$WORK_TMP/sqlite_check.txt"; then
     echo "FOUND SQLITE WARNINGS:" >> "$REPORT"
-    cat /tmp/sqlite_check.txt >> "$REPORT"
+    cat "$WORK_TMP/sqlite_check.txt" >> "$REPORT"
 else
     echo "RESULT: no SQLite warnings/errors found in the log" >> "$REPORT"
 fi
@@ -183,7 +197,7 @@ section "DONE"
 # ----------------------------------------------------------------------
 echo "" | tee -a "$REPORT"
 echo "Automated checks complete. Full report: $REPORT" | tee -a "$REPORT"
-echo "Full pytest output: /tmp/pytest_output.txt" | tee -a "$REPORT"
+echo "Full pytest output: "$WORK_TMP/pytest_output.txt"" | tee -a "$REPORT"
 echo "Full app log: live_app.log" | tee -a "$REPORT"
 echo "" | tee -a "$REPORT"
 echo "Remaining MANUAL steps (real Telegram + real Groq conversation) are in TASK_016_CHECKLIST.md" | tee -a "$REPORT"
