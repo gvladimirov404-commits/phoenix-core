@@ -58,6 +58,16 @@ def configure_logging(
     for handler in handlers:
         root_logger.addHandler(handler)
 
+    # httpx/httpcore log the full request URL at INFO level by default.
+    # The Telegram Bot API embeds the bot token directly in the URL path
+    # (https://api.telegram.org/bot<TOKEN>/method — not an Authorization
+    # header), so leaving these at INFO leaks the real token into logs on
+    # every Telegram API call (Task 016, live validation finding). Capping
+    # them at WARNING keeps real httpx/httpcore problems visible while
+    # suppressing their routine per-request logging.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     # Configure structlog
     shared_processors: list[Any] = [
         structlog.contextvars.merge_contextvars,

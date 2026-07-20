@@ -22,7 +22,8 @@ class TestAIProviderEnvLoading:
         assert provider_config.model == "deepseek-chat"
         assert provider_config.enabled is True
 
-    def test_default_provider_is_deepseek(self) -> None:
+    def test_default_provider_is_deepseek(self, monkeypatch) -> None:
+        monkeypatch.delenv("AI_DEFAULT_PROVIDER", raising=False)
         settings = Settings()
         assert settings.ai_default_provider == "deepseek"
 
