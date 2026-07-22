@@ -222,6 +222,26 @@ class SQLiteConversationStore(ConversationStore):
             self._conn.close()
             self._conn = None
 
+    def __del__(self) -> None:
+        """Safety-net finalizer: close the connection if a caller never did.
+
+        `close()` (via ConversationManager.stop()) is the intended way to
+        release the connection, and every production call site already does
+        this — but a great many tests construct a ConversationManager/
+        SQLiteConversationStore and let it go out of scope without an
+        explicit teardown. Without this, sqlite3 emits a ResourceWarning
+        when that connection is later garbage collected still open. This
+        `__del__` guarantees the connection is closed before that point,
+        which addresses the actual cause (an open connection at GC time)
+        rather than suppressing the resulting warning.
+        """
+        try:
+            self.close()
+        except Exception:
+            # __del__ must never raise — if the interpreter is already
+            # tearing down (module globals gone), just let it be.
+            pass
+
     def _require_conn(self) -> sqlite3.Connection:
         if self._conn is None:
             raise RuntimeError("SQLiteConversationStore.initialize() must be called before use")
