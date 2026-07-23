@@ -37,30 +37,32 @@ class TestMarkdownBalancing:
         assert result.count("```") % 2 == 0
 
 
-class TestTruncation:
+class TestNoTruncation:
+    """Task 017: long responses are chunked at send time, never cut here."""
+
     def test_text_within_limit_unchanged(self) -> None:
         sanitizer = OutputSanitizer(max_length=100)
         text = "a" * 50
         assert sanitizer.sanitize(text) == text
 
-    def test_text_over_limit_is_truncated_with_marker(self) -> None:
+    def test_text_over_legacy_limit_is_preserved_in_full(self) -> None:
         sanitizer = OutputSanitizer(max_length=100)
         text = "a" * 500
         result = sanitizer.sanitize(text)
-        assert len(result) <= 100
-        assert "съкратено" in result
+        assert len(result) == 500
+        assert "съкратено" not in result
 
-    def test_truncated_result_never_exceeds_max_length(self) -> None:
+    def test_very_long_text_preserved_in_full(self) -> None:
         sanitizer = OutputSanitizer(max_length=MAX_TELEGRAM_MESSAGE_LENGTH)
         text = "х" * 10000
         result = sanitizer.sanitize(text)
-        assert len(result) <= MAX_TELEGRAM_MESSAGE_LENGTH
+        assert len(result) == 10000
 
 
 class TestConstruction:
-    def test_too_small_max_length_rejected(self) -> None:
+    def test_non_positive_max_length_rejected(self) -> None:
         with pytest.raises(ValueError):
-            OutputSanitizer(max_length=1)
+            OutputSanitizer(max_length=0)
 
 
 class TestHealthCheck:

@@ -1,24 +1,19 @@
 """
 OutputSanitizer — defensive cleanup of AI-generated text before it is sent
-to Telegram (Task 011, Задача 5).
+to Telegram (Task 011, Задача 5; truncation removed in Task 017 Part 1).
 
-Two independent, narrowly-scoped protections, deliberately not a full
-Markdown parser/formatter — Task 011 explicitly says "Не променяй
-съдържанието повече от необходимото":
-
-1. Length: Telegram rejects `sendMessage` calls over 4096 characters.
-   Responses over that are truncated with a clear Bulgarian marker rather
-   than letting the send fail outright.
-2. Unbalanced Markdown-ish tokens: phoenix_core.telegram.commands does not
-   currently set a Telegram `parse_mode`, so `*`/`_`/`` ` `` are inert
-   today — but an odd count of any of them is a plausible source of a
-   broken/confusing message the moment `parse_mode` is ever turned on, so
-   an unmatched trailing token is neutralized (escaped) defensively.
+As of Task 017, this class has a single responsibility: neutralizing
+unbalanced Markdown-ish tokens so a stray trailing "*"/"_"/"`" can't produce
+a broken/confusing message if `parse_mode` is ever turned on. Length
+limiting is no longer this class's job — the real defect (long AI answers
+being cut with a "[съкратено...]" marker) is fixed by splitting long
+responses into multiple Telegram messages at send time
+(phoenix_core.telegram.bot._split_for_telegram), which preserves full
+content instead of discarding it.
 """
 from typing import Dict
 
 MAX_TELEGRAM_MESSAGE_LENGTH = 4096
-_TRUNCATION_SUFFIX = "\n\n… [съкратено, отговорът беше твърде дълъг]"
 _MARKDOWN_TOKENS = ("```", "*", "_", "`")
 
 
@@ -29,21 +24,17 @@ class OutputSanitizer:
         """Create a sanitizer.
 
         Args:
-            max_length: Telegram's message length ceiling, in characters.
+            max_length: Retained for backward-compatible construction and
+                reported by health_check(); no longer used to truncate
+                content — see module docstring (Task 017).
         """
-        if max_length < len(_TRUNCATION_SUFFIX) + 1:
-            raise ValueError("max_length must comfortably fit the truncation suffix")
+        if max_length < 1:
+            raise ValueError("max_length must be a positive number of characters")
         self._max_length = max_length
 
     def sanitize(self, text: str) -> str:
-        """Return `text`, truncated to the length limit and with balanced Markdown tokens.
-
-        Order matters: tokens are balanced first (on the full text), then
-        the result is truncated — truncating first could itself create a
-        new unbalanced token right at the cut point.
-        """
-        cleaned = self._balance_markdown_tokens(text)
-        return self._truncate(cleaned)
+        """Return `text` with balanced Markdown tokens. Never truncates."""
+        return self._balance_markdown_tokens(text)
 
     @staticmethod
     def _balance_markdown_tokens(text: str) -> str:
@@ -56,12 +47,6 @@ class OutputSanitizer:
             if text.count(token) % 2 != 0:
                 text += token
         return text
-
-    def _truncate(self, text: str) -> str:
-        if len(text) <= self._max_length:
-            return text
-        cutoff = self._max_length - len(_TRUNCATION_SUFFIX)
-        return text[:cutoff].rstrip() + _TRUNCATION_SUFFIX
 
     async def health_check(self) -> Dict[str, int]:
         """Report OutputSanitizer's configured limit for the AI Guard health summary."""

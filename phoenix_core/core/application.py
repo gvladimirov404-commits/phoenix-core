@@ -145,7 +145,7 @@ class PhoenixApplication:
 
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, self._signal_handler)
+            loop.add_signal_handler(sig, self._signal_handler, sig)
 
         logger.info("Starting Phoenix Core components...")
 
@@ -165,9 +165,16 @@ class PhoenixApplication:
         finally:
             await self.stop()
 
-    def _signal_handler(self) -> None:
-        """Handle shutdown signals"""
-        logger.info("Shutdown signal received")
+    def _signal_handler(self, sig: signal.Signals) -> None:
+        """Handle shutdown signals.
+
+        Logs which specific signal triggered the shutdown (Task 017) — this
+        distinguishes a deliberate Ctrl+C (SIGINT) from the process being
+        terminated externally (SIGTERM, e.g. Android/Termux killing the
+        session or app in the background), which was previously
+        indistinguishable in the logs.
+        """
+        logger.info("Shutdown signal received", signal=sig.name)
         if self._shutdown_event:
             self._shutdown_event.set()
 
