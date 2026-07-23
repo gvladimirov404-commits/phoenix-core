@@ -27,6 +27,8 @@ from phoenix_core.core.container import Container
 from phoenix_core.guard.guard import AIGuard
 from phoenix_core.guard.sanitizer import OutputSanitizer
 from phoenix_core.memory.context_builder import ContextBuilder, DEFAULT_MAX_CONTEXT_CHARS
+from phoenix_core.services.crypto.base import CryptoMarket
+from phoenix_core.services.crypto.intent import detect_crypto_intent
 from phoenix_core.telegram.context import CommandContext
 from phoenix_core.utils.exceptions import (
     AIProviderConnectionError,
@@ -36,6 +38,11 @@ from phoenix_core.utils.exceptions import (
     AIProviderTimeoutError,
     ConfigurationError,
     ContextTooLargeError,
+    CryptoConnectionError,
+    CryptoError,
+    CryptoNotFoundError,
+    CryptoRateLimitError,
+    CryptoTimeoutError,
     GitHubAuthenticationError,
     GitHubConfigurationError,
     GitHubConnectionError,
@@ -51,6 +58,12 @@ from phoenix_core.utils.exceptions import (
 from phoenix_core.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+_MSG_CRYPTO_NOT_CONFIGURED = "Крипто модулът не е конфигуриран."
+_MSG_CRYPTO_USAGE = "Употреба: /crypto <символ|top>. Пример: /crypto btc"
+_MSG_CRYPTO_RATE_LIMIT = "Достигнат е лимитът на заявки към крипто доставчика. Опитай отново след малко."
+_MSG_CRYPTO_CONNECTION = "Проблем с връзката към крипто доставчика. Опитай отново."
+_MSG_CRYPTO_GENERIC_ERROR = "Възникна грешка при взимане на крипто данни."
 
 # User-facing messages are intentionally short and never include stack traces
 # or internal error details (Задача 3, Task 008).
@@ -286,6 +299,69 @@ async def cmd_ai(args: List[str], context: CommandContext, container: Container)
     return "\n".join(lines)
 
 
+def _format_crypto_market(market: CryptoMarket) -> str:
+    change = market.change_24h_pct
+    change_str = f"{change:+.2f}%" if change is not None else "—"
+    market_cap = f"{market.market_cap_usd:,.0f} USD" if market.market_cap_usd is not None else "—"
+    volume = f"{market.volume_24h_usd:,.0f} USD" if market.volume_24h_usd is not None else "—"
+    price = f"{market.price_usd:,.2f} USD" if market.price_usd is not None else "—"
+    lines = [
+        f"{market.name} ({market.symbol})", "", "Price:", price, "", "24h:", change_str,
+        "", "Market Cap:", market_cap, "", "24h Volume:", volume, "", "Last Updated:",
+        market.last_updated or "—",
+    ]
+    return "\n".join(lines)
+
+
+def _format_crypto_top_coins(coins: List[CryptoMarket]) -> str:
+    lines = ["🏆 Топ крипто по пазарна капитализация:"]
+    for index, coin in enumerate(coins, start=1):
+        change = coin.change_24h_pct
+        change_str = f"{change:+.2f}%" if change is not None else "—"
+        price = f"{coin.price_usd:,.2f} USD" if coin.price_usd is not None else "—"
+        lines.append(f"{index}. {coin.name} ({coin.symbol}) — {price} ({change_str})")
+    return "\n".join(lines)
+
+
+async def cmd_crypto(args: List[str], context: CommandContext, container: Container) -> str:
+    try:
+        crypto_provider = container.resolve("crypto_provider")
+    except KeyError:
+        return _MSG_CRYPTO_NOT_CONFIGURED
+
+    if not args:
+        return _MSG_CRYPTO_USAGE
+
+    target = args[0].strip().lower()
+
+    if target == "top":
+        limit = 10
+        if len(args) > 1 and args[1].isdigit():
+            limit = max(1, min(int(args[1]), 25))
+        try:
+            coins = await crypto_provider.get_top_coins(limit=limit)
+        except CryptoRateLimitError:
+            return _MSG_CRYPTO_RATE_LIMIT
+        except (CryptoTimeoutError, CryptoConnectionError):
+            return _MSG_CRYPTO_CONNECTION
+        except CryptoError:
+            return _MSG_CRYPTO_GENERIC_ERROR
+        return _format_crypto_top_coins(coins)
+
+    try:
+        market = await crypto_provider.get_market(target)
+    except CryptoNotFoundError:
+        return f"⚠️ Непознат крипто символ: {args[0]}"
+    except CryptoRateLimitError:
+        return _MSG_CRYPTO_RATE_LIMIT
+    except (CryptoTimeoutError, CryptoConnectionError):
+        return _MSG_CRYPTO_CONNECTION
+    except CryptoError:
+        return _MSG_CRYPTO_GENERIC_ERROR
+
+    return _format_crypto_market(market)
+
+
 def _resolve_context_builder(container: Container) -> ContextBuilder:
     """Resolve the shared ContextBuilder from the container, or build a default one.
 
@@ -315,6 +391,26 @@ async def cmd_ask(args: List[str], context: CommandContext, container: Container
         return _MSG_EMPTY_ASK
 
     question = " ".join(args)
+
+    crypto_intent = detect_crypto_intent(question)
+    if crypto_intent is not None:
+        try:
+            crypto_provider = container.resolve("crypto_provider")
+        except KeyError:
+            crypto_provider = None
+        if crypto_provider is not None:
+            intent_kind, intent_symbol = crypto_intent
+            try:
+                if intent_kind == "top":
+                    coins = await crypto_provider.get_top_coins(limit=10)
+                    return _format_crypto_top_coins(coins)
+                else:
+                    market = await crypto_provider.get_market(intent_symbol)
+                    return _format_crypto_market(market)
+            except CryptoNotFoundError:
+                pass
+            except CryptoError:
+                return _MSG_CRYPTO_GENERIC_ERROR
 
     try:
         settings = container.resolve("settings")

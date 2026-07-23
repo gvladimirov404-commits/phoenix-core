@@ -310,3 +310,23 @@ Not supported (out of scope for V1): Pull Requests, branch management, releases,
 Without `PHOENIX_GITHUB_TOKEN` set, the GitHub client is simply not started — the rest of the app runs normally.
 
 
+
+
+## Crypto Module (Task CRYPTO-001)
+
+Real-time crypto market data via the free CoinGecko API (no API key needed).
+
+### Commands
+- `/crypto btc`, `/crypto eth`, `/crypto sol` — price, 24h change, market cap, volume
+- `/crypto top [N]` — top N coins by market cap (default 10)
+
+### Natural language
+Questions like "Колко струва bitcoin?" or "What is the BTC price?" are answered
+directly from CryptoProvider, without needing to know /crypto exists.
+
+### Config (env vars, all optional)
+- PHOENIX_CRYPTO_ENABLED (default: true)
+- PHOENIX_CRYPTO_CACHE_TTL_SECONDS (default: 60)
+- PHOENIX_CRYPTO_TIMEOUT / PHOENIX_CRYPTO_MAX_RETRIES / PHOENIX_CRYPTO_BASE_URL
+
+No trading, wallet management, or investment advice — market data only.

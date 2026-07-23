@@ -37,7 +37,7 @@ class TestCommandRegistration:
         names = {name for name, _description in bot._dispatcher.list_commands()}
         assert names == {
             "start", "help", "version", "status", "health",
-            "repo", "issues", "plugins", "ai", "ask", "reset", "memory",
+            "repo", "issues", "plugins", "ai", "ask", "reset", "memory", "crypto",
         }
 
     def test_exposes_dispatcher_via_container(self) -> None:

@@ -114,6 +114,7 @@ class TelegramBot:
         self._dispatcher.register("ask", telegram_commands.cmd_ask, "Задай въпрос на AI-я (помни разговора)")
         self._dispatcher.register("reset", telegram_commands.cmd_reset, "Изтрива текущия разговор с AI-я")
         self._dispatcher.register("memory", telegram_commands.cmd_memory, "Статистика за текущия разговор")
+        self._dispatcher.register("crypto", telegram_commands.cmd_crypto, "Крипто пазарни данни (напр. /crypto btc, /crypto top)")
         # Exposed via the container so cmd_help can list all commands without
         # this module needing to duplicate the registry.
         self.container.register("command_dispatcher", self._dispatcher)

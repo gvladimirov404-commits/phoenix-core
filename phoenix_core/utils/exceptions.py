@@ -142,3 +142,32 @@ class PromptTooLargeError(GuardError):
 class ContextTooLargeError(GuardError):
     """Raised when the assembled conversation context exceeds the configured size limit"""
     pass
+
+
+class CryptoError(PhoenixError):
+    """Raised when a crypto market data operation fails (Task CRYPTO-001)"""
+    pass
+
+
+class CryptoConfigurationError(CryptoError):
+    pass
+
+
+class CryptoNotFoundError(CryptoError):
+    pass
+
+
+class CryptoRateLimitError(CryptoError):
+    pass
+
+
+class CryptoTimeoutError(CryptoError):
+    pass
+
+
+class CryptoConnectionError(CryptoError):
+    pass
+
+
+class CryptoInvalidResponseError(CryptoError):
+    pass

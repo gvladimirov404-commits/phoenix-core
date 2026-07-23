@@ -97,6 +97,17 @@ class SecurityConfig(BaseSettings):
     rate_limit: int = Field(default=100, description="Requests per minute limit")
 
 
+class CryptoConfig(BaseSettings):
+    """Crypto market data provider configuration (Task CRYPTO-001)"""
+    model_config = SettingsConfigDict(env_prefix="PHOENIX_CRYPTO_")
+
+    enabled: bool = Field(default=True, description="Enable the crypto market data module")
+    base_url: Optional[str] = Field(None, description="Override for the CoinGecko API base URL")
+    timeout: int = Field(default=15, ge=1, le=120, description="Request timeout in seconds")
+    max_retries: int = Field(default=2, ge=0, le=10, description="Max retry attempts for transient failures")
+    cache_ttl_seconds: float = Field(default=60.0, ge=1.0, description="How long cached responses stay valid")
+
+
 class Settings(BaseSettings):
     """Main application settings"""
     model_config = SettingsConfigDict(
@@ -162,6 +173,9 @@ class Settings(BaseSettings):
 
     # Security
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+
+    # Crypto
+    crypto: CryptoConfig = Field(default_factory=CryptoConfig)
 
     # Paths
     data_dir: str = Field(default="./data", description="Data directory")

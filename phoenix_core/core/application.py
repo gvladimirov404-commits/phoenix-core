@@ -15,6 +15,7 @@ from phoenix_core.guard.guard import AIGuard
 from phoenix_core.guard.rate_limiter import RateLimiter
 from phoenix_core.guard.retry import RetryPolicy
 from phoenix_core.guard.sanitizer import OutputSanitizer
+from phoenix_core.services.crypto.coingecko_provider import CoinGeckoProvider
 from phoenix_core.memory.context_builder import ContextBuilder
 from phoenix_core.memory.manager import ConversationManager
 from phoenix_core.plugins.registry import PluginRegistry
@@ -111,6 +112,16 @@ class PhoenixApplication:
         )
         self.container.register("ai_guard", ai_guard)
         self._components.append(ai_guard)
+
+        if self.settings.crypto.enabled:
+            crypto_provider = CoinGeckoProvider(
+                base_url=self.settings.crypto.base_url,
+                timeout=self.settings.crypto.timeout,
+                max_retries=self.settings.crypto.max_retries,
+                cache_ttl_seconds=self.settings.crypto.cache_ttl_seconds,
+            )
+            self.container.register("crypto_provider", crypto_provider)
+            self._components.append(crypto_provider)
 
         if self.settings.telegram.bot_token.get_secret_value():
             telegram_bot = TelegramBot(
