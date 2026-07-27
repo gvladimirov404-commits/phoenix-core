@@ -126,9 +126,10 @@ class TelegramBot:
 
     # ------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------async def start(self) -> None:
-     async def start(self) -> None:  
-      """Build the underlying Application, wire every registered command, and start polling."""
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Build the underlying Application, wire every registered command, and start polling."""
         if not self.token:
             raise ConfigurationError("Telegram bot_token is not configured")
 

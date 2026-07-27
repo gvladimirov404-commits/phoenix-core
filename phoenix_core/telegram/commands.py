@@ -266,7 +266,9 @@ async def cmd_issues(args: List[str], context: CommandContext, container: Contai
     except (GitHubTimeoutError, GitHubConnectionError):
         return _MSG_GITHUB_CONNECTION
     except GitHubError:
-        return _MSG_GITHUB_GENERIC_ERRORif not issues:
+        return _MSG_GITHUB_GENERIC_ERROR
+
+    if not issues:
         return "📋 Няма отворени issues."
 
     lines = ["📋 Последни issues:"]

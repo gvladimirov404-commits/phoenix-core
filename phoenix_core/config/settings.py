@@ -147,7 +147,8 @@ class Settings(BaseSettings):
     environment: str = Field(default="production", description="Environment (development, staging, production)")
 
     # AI Providers
-    ai_providers: List[AIProviderConfig] = Field(default=[], description="AI provider configurations")ai_default_provider: str = Field(default="deepseek", description="Default AI provider")
+    ai_providers: List[AIProviderConfig] = Field(default=[], description="AI provider configurations")
+    ai_default_provider: str = Field(default="deepseek", description="Default AI provider")
     ai_fallback_enabled: bool = Field(default=True, description="Enable fallback between providers")
     ai_request_timeout: int = Field(default=60, ge=1, le=300, description="Global AI request timeout")
     ai_max_prompt_length: int = Field(

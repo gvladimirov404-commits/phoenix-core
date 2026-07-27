@@ -23,8 +23,13 @@ class TestAIProviderEnvLoading:
         assert provider_config.enabled is True
 
     def test_default_provider_is_deepseek(self, monkeypatch) -> None:
+        # _env_file=None isolates this test from a real, gitignored .env on
+        # disk (e.g. a developer's local file setting AI_DEFAULT_PROVIDER) —
+        # monkeypatch.delenv alone isn't enough, since Settings() re-reads
+        # the .env file directly at construction time regardless of the
+        # process environment.
         monkeypatch.delenv("AI_DEFAULT_PROVIDER", raising=False)
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.ai_default_provider == "deepseek"
 
     def test_default_max_prompt_length(self) -> None:
