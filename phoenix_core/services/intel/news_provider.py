@@ -168,3 +168,148 @@ class CryptoPanicNewsProvider(NewsProvider):
 
     async def __aexit__(self, exc_type: Optional[Type[BaseException]], exc_val: Optional[BaseException], exc_tb: Optional[TracebackType]) -> None:
         await self.close()
+
+import xml.etree.ElementTree as ET
+
+# Reuse full names so a query for "btc" actually searches "bitcoin", which
+# returns far more relevant results than the bare ticker.
+_SYMBOL_TO_QUERY = {
+    "btc": "bitcoin", "eth": "ethereum", "sol": "solana", "bnb": "binance coin",
+    "xrp": "ripple", "ada": "cardano", "doge": "dogecoin", "ton": "toncoin",
+    "trx": "tron", "dot": "polkadot", "avax": "avalanche", "link": "chainlink",
+    "ltc": "litecoin", "usdt": "tether", "usdc": "usd coin",
+}
+
+
+def _resolve_query(symbol: str) -> str:
+    key = symbol.strip().lower()
+    return _SYMBOL_TO_QUERY.get(key, symbol.strip())
+
+
+class GoogleNewsRSSProvider(NewsProvider):
+    """NewsProvider backed by Google News RSS search — free, keyless, no
+    Cloudflare bot-protection issues (unlike CryptoPanicNewsProvider, kept
+    above for reference/future use if that access issue is ever resolved).
+    """
+
+    def __init__(
+        self,
+        timeout: int = 15,
+        max_retries: int = 2,
+        cache_ttl_seconds: float = DEFAULT_CACHE_TTL_SECONDS,
+    ) -> None:
+        """Create a Google News RSS-backed news provider.
+
+        Args:
+            timeout: Request timeout in seconds.
+            max_retries: Max retry attempts for transient failures.
+            cache_ttl_seconds: How long a cached response stays valid.
+        """
+        self.base_url = "https://news.google.com/rss/search"
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self._client = None
+        self._cache = TTLCache(ttl_seconds=cache_ttl_seconds)
+
+    @property
+    def name(self) -> str:
+        """Provider identifier."""
+        return "google-news-rss"
+
+    def _get_client(self):
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self.timeout)
+        return self._client
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client, if one was created."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+    async def stop(self) -> None:
+        """Lifecycle hook used by PhoenixApplication.stop()."""
+        await self.close()
+
+    async def get_news(self, symbol: str, limit: int = 5):
+        """Return the latest `limit` news items for `symbol` (cached)."""
+        query = _resolve_query(symbol)
+        cache_key = f"news:{query}:{limit}"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        params = {"q": f"{query} crypto", "hl": "en-US", "gl": "US", "ceid": "US:en"}
+        xml_text = await self._get_with_retries(params)
+        items = _parse_rss(xml_text, limit)
+        self._cache.set(cache_key, items)
+        return items
+
+    async def health_check(self):
+        """Report configuration only — no network request is made."""
+        return {"status": "configured", "provider": self.name, "cache_entries": len(self._cache)}
+
+    async def _get_with_retries(self, params):
+        client = self._get_client()
+        attempt = 0
+        last_error = None
+
+        while attempt <= self.max_retries:
+            try:
+                response = await client.get(self.base_url, params=params)
+            except httpx.TimeoutException as e:
+                last_error = CryptoTimeoutError(f"Google News request timed out: {e}")
+            except httpx.TransportError as e:
+                last_error = CryptoConnectionError(f"Google News connection failed: {e}")
+            else:
+                if response.status_code == 200:
+                    return response.text
+                if response.status_code == 429:
+                    last_error = CryptoRateLimitError("Google News rate limit exceeded")
+                elif response.status_code in _RETRYABLE_STATUS_CODES:
+                    last_error = CryptoError(f"Google News server error (HTTP {response.status_code})")
+                else:
+                    raise CryptoError(f"Google News request failed (HTTP {response.status_code})")
+
+            attempt += 1
+            if attempt <= self.max_retries:
+                backoff = min(2 ** attempt * 0.5, 8.0)
+                logger.debug(
+                    "Google News request failed, retrying",
+                    attempt=attempt,
+                    max_retries=self.max_retries,
+                    backoff_seconds=backoff,
+                )
+                await asyncio.sleep(backoff)
+
+        assert last_error is not None
+        raise last_error
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+
+
+def _parse_rss(xml_text: str, limit: int):
+    """Parse a Google News RSS feed into NewsItem objects."""
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        raise CryptoInvalidResponseError(f"Google News returned invalid XML: {e}") from e
+
+    channel = root.find("channel")
+    if channel is None:
+        return []
+
+    items = []
+    for item_el in channel.findall("item")[:limit]:
+        title = item_el.findtext("title") or ""
+        link = item_el.findtext("link") or ""
+        pub_date = item_el.findtext("pubDate")
+        source_el = item_el.find("source")
+        source = source_el.text if source_el is not None else None
+        items.append(NewsItem(title=title, summary=title, url=link, published_at=pub_date, source=source))
+    return items
+

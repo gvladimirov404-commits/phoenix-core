@@ -18,6 +18,7 @@ from phoenix_core.guard.sanitizer import OutputSanitizer
 from phoenix_core.services.crypto.coingecko_provider import CoinGeckoProvider
 from phoenix_core.services.intel.feargreed_provider import AlternativeMeFearGreedProvider
 from phoenix_core.services.intel.fees_provider import MempoolSpaceFeesProvider
+from phoenix_core.services.intel.news_provider import GoogleNewsRSSProvider
 from phoenix_core.services.intel.news_provider import CryptoPanicNewsProvider
 from phoenix_core.services.watchlist.manager import WatchlistManager
 from phoenix_core.memory.context_builder import ContextBuilder
@@ -143,10 +144,12 @@ class PhoenixApplication:
             self.container.register("fees_provider", fees_provider)
             self._components.append(fees_provider)
 
-        if self.settings.news.enabled and self.settings.news.api_token.get_secret_value():
-            news_provider = CryptoPanicNewsProvider(
-                api_token=self.settings.news.api_token.get_secret_value(),
-                base_url=self.settings.news.base_url,
+        if self.settings.news.enabled:
+            # CryptoPanic's API is blocked by Cloudflare bot protection from
+            # this environment (see project notes) — GoogleNewsRSSProvider
+            # is a free, keyless, reliably-accessible replacement with the
+            # same NewsProvider interface. No token required anymore.
+            news_provider = GoogleNewsRSSProvider(
                 timeout=self.settings.news.timeout,
                 max_retries=self.settings.news.max_retries,
                 cache_ttl_seconds=self.settings.news.cache_ttl_seconds,
