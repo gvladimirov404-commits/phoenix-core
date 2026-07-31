@@ -25,11 +25,18 @@ from phoenix_core.utils.logger import get_logger
 logger = get_logger(__name__)
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-v4-flash"
 
 # Known DeepSeek chat models at time of writing. Not fetched dynamically —
 # dynamic model discovery is out of scope for this provider.
-_AVAILABLE_MODELS = ["deepseek-chat", "deepseek-reasoner"]
+# NOTE (Task 022): "deepseek-chat"/"deepseek-reasoner" were the legacy
+# compatibility aliases, officially retired 2026-07-24 — they now return an
+# API error instead of transparently routing to the current models.
+# deepseek-v4-flash is the fast/default-non-thinking replacement;
+# deepseek-v4-pro is the larger, thinking-enabled model. NOTE: v4-flash may
+# have thinking enabled by default depending on request parameters — verify
+# actual latency/cost behavior with a live call before relying on it.
+_AVAILABLE_MODELS = ["deepseek-v4-flash", "deepseek-v4-pro"]
 
 # Retries only make sense for transient failures, not for auth/client errors.
 _RETRYABLE_STATUS_CODES = {500, 502, 503, 504}

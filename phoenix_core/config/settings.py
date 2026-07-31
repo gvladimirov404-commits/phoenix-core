@@ -240,7 +240,7 @@ class Settings(BaseSettings):
                     name="deepseek",
                     api_key=deepseek_api_key,
                     base_url=os.environ.get("PHOENIX_AI_DEEPSEEK_BASE_URL") or None,
-                    model=os.environ.get("PHOENIX_AI_DEEPSEEK_MODEL", "deepseek-chat"),
+                    model=os.environ.get("PHOENIX_AI_DEEPSEEK_MODEL", "deepseek-v4-flash"),
                     timeout=int(os.environ.get("PHOENIX_AI_DEEPSEEK_TIMEOUT", "30")),
                     max_retries=int(os.environ.get("PHOENIX_AI_DEEPSEEK_MAX_RETRIES", "3")),
                     priority=1,
