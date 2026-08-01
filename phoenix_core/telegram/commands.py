@@ -965,3 +965,85 @@ async def cmd_explain(args: List[str], context: CommandContext, container: Conta
         content = _default_sanitizer().sanitize(response.content)
 
     return f"🧠 Обяснение за {snapshot.symbol}\n\n{content}\n\nProvider: {response.provider}"
+
+
+from phoenix_core.ai.consensus import ConsensusEngine
+
+_MSG_CONSENSUS_USAGE = "Употреба: /consensus <въпрос>. Пример: /consensus Ще расте ли bitcoin?"
+_MSG_CONSENSUS_UNAVAILABLE = "AI слоят не е наличен в момента."
+
+
+def _format_consensus(result, ai_guard=None) -> str:
+    lines = [f"⚖️ Консенсус ({result.provider_count} provider-а):", ""]
+
+    for name, response in result.responses.items():
+        if ai_guard is not None:
+            content = ai_guard.sanitize_output(response.content)
+        else:
+            content = _default_sanitizer().sanitize(response.content)
+        lines.append(f"🤖 {name}:")
+        lines.append(content)
+        lines.append("")
+
+    if result.errors:
+        failed = ", ".join(result.errors.keys())
+        lines.append(f"⚠️ Неуспешни: {failed}")
+        lines.append("")
+
+    if len(result.responses) == 1 and not result.errors:
+        lines.append(
+            "ℹ️ В момента е активен само един AI provider — сравнение ще е "
+            "възможно, когато се активира втори (напр. DeepSeek)."
+        )
+
+    return "\n".join(lines).strip()
+
+
+async def cmd_consensus(args: List[str], context: CommandContext, container: Container) -> str:
+    """Ask every currently configured AI provider the same question and show
+    each answer side by side (Roadmap item 5 / TASK-021 Part 9). Degrades
+    gracefully to a single-provider answer when only one is configured, and
+    needs no changes to start comparing once a second provider is enabled."""
+    if not args:
+        return _MSG_CONSENSUS_USAGE
+
+    question = " ".join(args)
+
+    try:
+        settings = container.resolve("settings")
+        max_length = settings.ai_max_prompt_length
+    except KeyError:
+        max_length = _DEFAULT_MAX_PROMPT_LENGTH
+
+    if len(question) > max_length:
+        return f"⚠️ Заявката е твърде дълга (максимум {max_length} символа)."
+
+    try:
+        ai_router = container.resolve("ai_router")
+    except KeyError:
+        return _MSG_CONSENSUS_UNAVAILABLE
+
+    if not ai_router.list_providers():
+        return _MSG_CONSENSUS_UNAVAILABLE
+
+    try:
+        ai_guard = container.resolve("ai_guard")
+    except KeyError:
+        ai_guard = None
+
+    engine = ConsensusEngine(ai_router)
+    messages = [{"role": "user", "content": question}]
+
+    logger.info(
+        "Consensus request started",
+        command="consensus",
+        user_id=context.user_id,
+        question_length=len(question),
+    )
+
+    result = await engine.get_consensus(messages)
+
+    if not result.responses:
+        return "⚠️ Нито един AI provider не успя да отговори в момента. Опитай отново по-късно."
+
+    return _format_consensus(result, ai_guard)
