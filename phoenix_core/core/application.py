@@ -221,6 +221,14 @@ class PhoenixApplication:
             auto_load=self.settings.plugins.auto_load,
         )
         self.container.register("plugin_registry", plugin_registry)
+        if plugin_registry.auto_load:
+            plugin_registry.discover()
+            try:
+                _plugin_dispatcher = self.container.resolve("command_dispatcher")
+            except KeyError:
+                _plugin_dispatcher = None
+            if _plugin_dispatcher is not None:
+                plugin_registry.register_all_commands(_plugin_dispatcher)
         self._components.append(plugin_registry)
 
         logger.info("Container initialized with all services")
