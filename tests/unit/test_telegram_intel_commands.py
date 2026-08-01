@@ -246,3 +246,81 @@ class TestCmdHelpOnboarding:
         assert "/watch — Watchlist" in result
         assert "Колко струва bitcoin?" in result
         assert "Предстои" in result
+
+from phoenix_core.services.crypto.base import CryptoMarket, CryptoPrice, CryptoProvider
+from phoenix_core.services.intel.aggregator import MarketIntelligenceAggregator
+
+
+class FakeCryptoProviderForIntel(CryptoProvider):
+    def __init__(self, should_fail=None) -> None:
+        self._should_fail = should_fail
+
+    @property
+    def name(self) -> str:
+        return "fake-crypto"
+
+    async def get_price(self, symbol: str) -> CryptoPrice:
+        raise NotImplementedError
+
+    async def get_market(self, symbol: str) -> CryptoMarket:
+        if self._should_fail:
+            raise self._should_fail
+        return CryptoMarket(
+            symbol=symbol.upper(),
+            name=symbol.upper(),
+            price_usd=62948.0,
+            change_24h_pct=-1.2,
+            market_cap_usd=1_000_000.0,
+            volume_24h_usd=500_000.0,
+            last_updated="2026-08-01",
+        )
+
+    async def get_top_coins(self, limit: int = 10):
+        raise NotImplementedError
+
+    async def health_check(self):
+        return {"status": "configured", "provider": self.name}
+
+
+# ----------------------------------------------------------------------
+# /intel
+# ----------------------------------------------------------------------
+
+class TestCmdIntel:
+    async def test_not_configured_returns_friendly_message(self) -> None:
+        container = Container()
+        result = await commands.cmd_intel(["btc"], make_context(), container)
+        assert "не е наличен" in result
+
+    async def test_no_args_returns_usage_message(self) -> None:
+        container = Container()
+        aggregator = MarketIntelligenceAggregator(crypto_provider=FakeCryptoProviderForIntel())
+        container.register("market_intel_aggregator", aggregator)
+        result = await commands.cmd_intel([], make_context(), container)
+        assert "Употреба" in result
+
+    async def test_returns_price_sentiment_fees_and_news(self) -> None:
+        container = Container()
+        aggregator = MarketIntelligenceAggregator(
+            crypto_provider=FakeCryptoProviderForIntel(),
+            feargreed_provider=FakeFearGreedProvider(),
+            fees_provider=FakeFeesProvider(),
+            news_provider=FakeNewsProvider(),
+        )
+        container.register("market_intel_aggregator", aggregator)
+        result = await commands.cmd_intel(["btc"], make_context(), container)
+        assert "BTC" in result
+        assert "62,948.00" in result
+        assert "72/100" in result
+        assert "Greed" in result
+        assert "45" in result
+        assert "Headline 1" in result
+
+    async def test_all_sub_sources_failing_returns_warning(self) -> None:
+        container = Container()
+        aggregator = MarketIntelligenceAggregator(
+            crypto_provider=FakeCryptoProviderForIntel(should_fail=CryptoError("down")),
+        )
+        container.register("market_intel_aggregator", aggregator)
+        result = await commands.cmd_intel(["btc"], make_context(), container)
+        assert "Не успях" in result
