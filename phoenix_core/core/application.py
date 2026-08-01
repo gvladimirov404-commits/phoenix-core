@@ -18,6 +18,7 @@ from phoenix_core.guard.sanitizer import OutputSanitizer
 from phoenix_core.services.crypto.coingecko_provider import CoinGeckoProvider
 from phoenix_core.services.intel.feargreed_provider import AlternativeMeFearGreedProvider
 from phoenix_core.services.intel.fees_provider import MempoolSpaceFeesProvider
+from phoenix_core.services.intel.aggregator import MarketIntelligenceAggregator
 from phoenix_core.services.intel.news_provider import GoogleNewsRSSProvider
 from phoenix_core.services.intel.news_provider import CryptoPanicNewsProvider
 from phoenix_core.services.watchlist.manager import WatchlistManager
@@ -156,6 +157,32 @@ class PhoenixApplication:
             )
             self.container.register("news_provider", news_provider)
             self._components.append(news_provider)
+
+        try:
+            _crypto_provider_for_intel = self.container.resolve("crypto_provider")
+        except KeyError:
+            _crypto_provider_for_intel = None
+        if _crypto_provider_for_intel is not None:
+            try:
+                _feargreed_for_intel = self.container.resolve("feargreed_provider")
+            except KeyError:
+                _feargreed_for_intel = None
+            try:
+                _fees_for_intel = self.container.resolve("fees_provider")
+            except KeyError:
+                _fees_for_intel = None
+            try:
+                _news_for_intel = self.container.resolve("news_provider")
+            except KeyError:
+                _news_for_intel = None
+
+            market_intel_aggregator = MarketIntelligenceAggregator(
+                crypto_provider=_crypto_provider_for_intel,
+                feargreed_provider=_feargreed_for_intel,
+                fees_provider=_fees_for_intel,
+                news_provider=_news_for_intel,
+            )
+            self.container.register("market_intel_aggregator", market_intel_aggregator)
 
         try:
             watchlist_manager = WatchlistManager(db_path=self.settings.sqlite_database)

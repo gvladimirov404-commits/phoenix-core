@@ -604,6 +604,57 @@ async def cmd_watch(args: List[str], context: CommandContext, container: Contain
     return "\n".join(lines)
 
 
+def _format_market_intel(snapshot) -> str:
+    lines = [f"\U0001F50E \u041f\u0430\u0437\u0430\u0440\u0435\u043d \u043f\u0440\u0435\u0433\u043b\u0435\u0434: {snapshot.symbol}", ""]
+
+    if snapshot.market is not None:
+        m = snapshot.market
+        change = m.change_24h_pct
+        change_str = f"{change:+.2f}%" if change is not None else "\u2014"
+        price = f"{m.price_usd:,.2f} USD" if m.price_usd is not None else "\u2014"
+        lines.append(f"\u0426\u0435\u043d\u0430: {price} ({change_str} 24\u0447)")
+    else:
+        lines.append("\u0426\u0435\u043d\u0430: \u043d\u0435 \u0435 \u0434\u043e\u0441\u0442\u044a\u043f\u043d\u0430 \u0432 \u043c\u043e\u043c\u0435\u043d\u0442\u0430")
+
+    if snapshot.fear_greed is not None:
+        fg = snapshot.fear_greed
+        lines.append(f"\u041d\u0430\u0441\u0442\u0440\u043e\u0435\u043d\u0438\u0435: {fg.value}/100 ({fg.classification})")
+    else:
+        lines.append("\u041d\u0430\u0441\u0442\u0440\u043e\u0435\u043d\u0438\u0435: \u043d\u0435 \u0435 \u0434\u043e\u0441\u0442\u044a\u043f\u043d\u043e \u0432 \u043c\u043e\u043c\u0435\u043d\u0442\u0430")
+
+    if snapshot.fees is not None:
+        f = snapshot.fees
+        lines.append(f"BTC \u0442\u0430\u043a\u0441\u0438: {f.fastest_sat_vb:g} sat/vB (\u043d\u0430\u0439-\u0431\u044a\u0440\u0437\u0430)")
+
+    if snapshot.top_news is not None:
+        n = snapshot.top_news
+        lines.append("")
+        lines.append(f"\U0001F4F0 {n.title}")
+        if n.source:
+            lines.append(f"\u0418\u0437\u0442\u043e\u0447\u043d\u0438\u043a: {n.source}")
+
+    return "\n".join(lines)
+
+
+async def cmd_intel(args: List[str], context: CommandContext, container: Container) -> str:
+    """Consolidated market snapshot: price, sentiment, BTC fees, top news (Roadmap item 2)."""
+    if not args:
+        return "\u0423\u043f\u043e\u0442\u0440\u0435\u0431\u0430: /intel <\u0441\u0438\u043c\u0432\u043e\u043b>. \u041f\u0440\u0438\u043c\u0435\u0440: /intel btc"
+
+    try:
+        aggregator = container.resolve("market_intel_aggregator")
+    except KeyError:
+        return "\u041c\u043e\u0434\u0443\u043b\u044a\u0442 \u0437\u0430 \u043f\u0430\u0437\u0430\u0440\u0435\u043d \u043f\u0440\u0435\u0433\u043b\u0435\u0434 \u043d\u0435 \u0435 \u043d\u0430\u043b\u0438\u0447\u0435\u043d."
+
+    symbol = args[0].strip().lower()
+    snapshot = await aggregator.get_snapshot(symbol)
+
+    if snapshot.is_empty:
+        return f"\u26a0\ufe0f \u041d\u0435 \u0443\u0441\u043f\u044f\u0445 \u0434\u0430 \u0432\u0437\u0435\u043c\u0430 \u043d\u0438\u043a\u0430\u043a\u0432\u0438 \u0434\u0430\u043d\u043d\u0438 \u0437\u0430 {symbol.upper()} \u0432 \u043c\u043e\u043c\u0435\u043d\u0442\u0430. \u041e\u043f\u0438\u0442\u0430\u0439 \u043e\u0442\u043d\u043e\u0432\u043e \u043f\u043e-\u043a\u044a\u0441\u043d\u043e."
+
+    return _format_market_intel(snapshot)
+
+
 def _resolve_context_builder(container: Container) -> ContextBuilder:
     """Resolve the shared ContextBuilder from the container, or build a default one.
 

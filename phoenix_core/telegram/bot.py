@@ -115,6 +115,7 @@ class TelegramBot:
         self._dispatcher.register("reset", telegram_commands.cmd_reset, "Изтрива текущия разговор с AI-я")
         self._dispatcher.register("memory", telegram_commands.cmd_memory, "Статистика за текущия разговор")
         self._dispatcher.register("crypto", telegram_commands.cmd_crypto, "Крипто пазарни данни (напр. /crypto btc, /crypto top)")
+        self._dispatcher.register("intel", telegram_commands.cmd_intel, "Обединен пазарен преглед: цена, настроение, такси, новини (напр. /intel btc)")
         self._dispatcher.register("brief", telegram_commands.cmd_brief, "Ежедневен крипто бюлетин (BTC/ETH + топ печеливши/губещи)")
         self._dispatcher.register("news", telegram_commands.cmd_news, "Последни 5 новини за монета (напр. /news btc)")
         self._dispatcher.register("fear", telegram_commands.cmd_fear, "Fear & Greed Index — текущо пазарно настроение")
