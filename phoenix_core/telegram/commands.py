@@ -1092,3 +1092,56 @@ async def cmd_benchmark(args: List[str], context: CommandContext, container: Con
     results = await benchmark.run()
 
     return _format_benchmark(results)
+
+
+from phoenix_core.services.strategy.registry import StrategyRegistry
+
+_MSG_STRATEGY_USAGE = "Употреба: /strategy <символ> [стратегия]. Пример: /strategy btc или /strategy btc momentum"
+_MSG_STRATEGY_INTEL_UNAVAILABLE = "Модулът за пазарен преглед не е наличен."
+_MSG_STRATEGY_NO_DATA = "⚠️ Не успях да взема достатъчно данни, за да оценя стратегиите. Опитай отново по-късно."
+_MSG_STRATEGY_UNKNOWN = "Няма стратегия с това име. Използвай /strategy <символ> без второ име, за да видиш всички."
+
+_STRATEGY_SIGNAL_ICONS = {"bullish": "🟢", "bearish": "🔴", "neutral": "🟡", "unknown": "⚪"}
+
+
+def _format_strategy_signal(signal) -> str:
+    icon = _STRATEGY_SIGNAL_ICONS.get(signal.signal, "⚪")
+    return f"{icon} {signal.strategy_name}: {signal.reasoning}"
+
+
+async def cmd_strategy(args: List[str], context: CommandContext, container: Container) -> str:
+    """Evaluate one or all built-in Strategy Lab strategies against a coin's
+    current market snapshot (Strategy Lab roadmap item). Purely informational
+    — every result carries a disclaimer and this never recommends an action."""
+    if not args:
+        return _MSG_STRATEGY_USAGE
+
+    try:
+        aggregator = container.resolve("market_intel_aggregator")
+    except KeyError:
+        return _MSG_STRATEGY_INTEL_UNAVAILABLE
+
+    symbol = args[0].strip().lower()
+    strategy_name = args[1].strip().lower() if len(args) > 1 else None
+
+    snapshot = await aggregator.get_snapshot(symbol)
+    if snapshot.is_empty:
+        return _MSG_STRATEGY_NO_DATA
+
+    registry = StrategyRegistry()
+
+    if strategy_name is not None:
+        strategy = registry.get(strategy_name)
+        if strategy is None:
+            return _MSG_STRATEGY_UNKNOWN
+        signals = {strategy_name: strategy.evaluate(snapshot)}
+    else:
+        signals = registry.evaluate_all(snapshot)
+
+    lines = [f"🧪 Strategy Lab — {snapshot.symbol}", ""]
+    for signal in signals.values():
+        lines.append(_format_strategy_signal(signal))
+    lines.append("")
+    lines.append("ℹ️ Информативно, не е финансов съвет.")
+
+    return "\n".join(lines)
