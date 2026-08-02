@@ -40,3 +40,6 @@ temp/
 task016_report.txt
 live_app.log
 .task016_tmp/
+
+# Waku local data
+.waku/
