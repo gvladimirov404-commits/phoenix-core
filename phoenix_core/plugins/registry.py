@@ -1,17 +1,21 @@
 """Plugin system — discovers, loads, and registers Python plugins found in
-configured directories (Plugin System roadmap item).
+configured directories (Plugin System roadmap item), with optional Sandbox
+Mode (Sandbox Mode roadmap item) applying source-level and runtime
+guardrails when settings.plugins.sandboxed is enabled.
 
 A plugin is any .py file in a scanned directory that exposes a module-level
 `PLUGIN` variable holding a PhoenixPlugin instance. Loading is best-effort
-per file: one broken plugin file is skipped with a logged warning and never
-prevents the others from loading or the bot from starting — the same
-degrade-rather-than-crash contract used throughout Phoenix Core.
+per file: one broken (or, under Sandbox Mode, disallowed) plugin file is
+skipped with a logged warning and never prevents the others from loading
+or the bot from starting — the same degrade-rather-than-crash contract
+used throughout Phoenix Core.
 """
 import importlib.util
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from phoenix_core.plugins.base import PhoenixPlugin
+from phoenix_core.plugins.sandbox import SandboxedDispatcherProxy, validate_plugin_source
 from phoenix_core.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +29,7 @@ class PluginRegistry:
         self,
         directories: Optional[List[str]] = None,
         auto_load: bool = False,
+        sandboxed: bool = False,
     ):
         """Store plugin configuration.
 
@@ -32,9 +37,13 @@ class PluginRegistry:
             directories: Directories to scan for plugin .py files.
             auto_load: Whether the application should discover and register
                 plugins automatically on startup (checked by the caller).
+            sandboxed: When True, plugin source is statically validated
+                before loading and every plugin command gets a runtime
+                timeout guard (see phoenix_core.plugins.sandbox).
         """
         self.directories = directories or []
         self.auto_load = auto_load
+        self.sandboxed = sandboxed
         self._plugins: Dict[str, PhoenixPlugin] = {}
         self._load_errors: Dict[str, str] = {}
 
@@ -45,6 +54,7 @@ class PluginRegistry:
         logger.debug(
             "PluginRegistry.start() called",
             auto_load=self.auto_load,
+            sandboxed=self.sandboxed,
             loaded=len(self._plugins),
         )
 
@@ -62,7 +72,10 @@ class PluginRegistry:
             status = "configured"
         return {
             "status": status,
-            "detail": f"{len(self._plugins)} plugin(s) loaded, {len(self._load_errors)} failed",
+            "detail": (
+                f"{len(self._plugins)} plugin(s) loaded, {len(self._load_errors)} failed "
+                f"(sandboxed={self.sandboxed})"
+            ),
             "loaded": list(self._plugins.keys()),
             "errors": dict(self._load_errors),
         }
@@ -82,10 +95,15 @@ class PluginRegistry:
 
     def _load_file(self, py_file: Path) -> None:
         """Import a single plugin file and register its PLUGIN instance.
-        Any failure (bad syntax, missing PLUGIN, wrong type) is caught and
-        recorded rather than propagated, so one bad file never blocks startup."""
+        Any failure (bad syntax, sandbox violation, missing PLUGIN, wrong
+        type) is caught and recorded rather than propagated, so one bad
+        file never blocks startup."""
         module_name = f"phoenix_plugin_{py_file.stem}"
         try:
+            if self.sandboxed:
+                source = py_file.read_text()
+                validate_plugin_source(source, py_file.name)
+
             spec = importlib.util.spec_from_file_location(module_name, py_file)
             if spec is None or spec.loader is None:
                 raise ImportError(f"Could not load spec for {py_file}")
@@ -110,10 +128,13 @@ class PluginRegistry:
     def register_all_commands(self, dispatcher) -> None:
         """Register every loaded plugin's commands into the given
         CommandDispatcher. One plugin's registration failure is isolated
-        and never blocks the rest from registering."""
+        and never blocks the rest from registering. Under Sandbox Mode,
+        the plugin gets a proxy dispatcher instead so every command it
+        registers automatically picks up a runtime timeout guard."""
+        target = SandboxedDispatcherProxy(dispatcher) if self.sandboxed else dispatcher
         for name, plugin in self._plugins.items():
             try:
-                plugin.register_commands(dispatcher)
+                plugin.register_commands(target)
             except Exception as e:
                 logger.warning(
                     "Plugin command registration failed",

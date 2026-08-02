@@ -219,6 +219,7 @@ class PhoenixApplication:
         plugin_registry = PluginRegistry(
             directories=self.settings.plugins.directories,
             auto_load=self.settings.plugins.auto_load,
+            sandboxed=self.settings.plugins.sandboxed,
         )
         self.container.register("plugin_registry", plugin_registry)
         if plugin_registry.auto_load:
