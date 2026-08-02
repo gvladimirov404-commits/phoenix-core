@@ -120,6 +120,7 @@ class TelegramBot:
         self._dispatcher.register("consensus", telegram_commands.cmd_consensus, "Пита всички AI provider-и едновременно и сравнява отговорите (напр. /consensus Ще расте ли bitcoin?)")
         self._dispatcher.register("benchmark", telegram_commands.cmd_benchmark, "Тества скоростта и успеваемостта на всеки AI provider (може да отнеме време)")
         self._dispatcher.register("strategy", telegram_commands.cmd_strategy, "Оценява прости стратегии върху текущите пазарни данни (напр. /strategy btc)")
+        self._dispatcher.register("copilot", telegram_commands.cmd_copilot, "AI брифинг, синтезиращ пазарни данни и Strategy Lab сигнали (напр. /copilot btc)")
         self._dispatcher.register("brief", telegram_commands.cmd_brief, "Ежедневен крипто бюлетин (BTC/ETH + топ печеливши/губещи)")
         self._dispatcher.register("news", telegram_commands.cmd_news, "Последни 5 новини за монета (напр. /news btc)")
         self._dispatcher.register("fear", telegram_commands.cmd_fear, "Fear & Greed Index — текущо пазарно настроение")

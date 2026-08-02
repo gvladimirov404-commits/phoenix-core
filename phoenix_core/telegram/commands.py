@@ -1145,3 +1145,136 @@ async def cmd_strategy(args: List[str], context: CommandContext, container: Cont
     lines.append("ℹ️ Информативно, не е финансов съвет.")
 
     return "\n".join(lines)
+
+
+_MSG_COPILOT_USAGE = "Употреба: /copilot <символ>. Пример: /copilot btc"
+_MSG_COPILOT_INTEL_UNAVAILABLE = "Модулът за пазарен преглед не е наличен."
+_MSG_COPILOT_NO_DATA = "⚠️ Не успях да взема достатъчно данни за брифинга. Опитай отново по-късно."
+
+
+def _build_copilot_prompt(snapshot, signals) -> str:
+    """Build a Bulgarian-language prompt asking the AI to synthesize the
+    market snapshot and Strategy Lab signals into a short briefing — never
+    a buy/sell recommendation, only a balanced read of what the data and
+    signals currently show, with risks explicitly named."""
+    parts = [
+        f"Ти си крипто анализатор, който пише кратък информативен брифинг за {snapshot.symbol}. "
+        "Синтезирай наличните данни и сигнали в 4-5 изречения на български. "
+        "СТРОГО ВАЖНО: не давай пряка препоръка да се купува или продава, не гарантирай бъдещо "
+        "движение — само опиши какво показват данните и къде си противоречат сигналите, "
+        "и спомени поне един конкретен риск."
+    ]
+
+    if snapshot.market is not None:
+        m = snapshot.market
+        change = m.change_24h_pct
+        change_str = f"{change:+.2f}%" if change is not None else "неизвестна"
+        parts.append(f"- Цена: {m.price_usd} USD, промяна за 24ч: {change_str}")
+    else:
+        parts.append("- Няма налична информация за цената.")
+
+    if snapshot.fear_greed is not None:
+        fg = snapshot.fear_greed
+        parts.append(f"- Пазарно настроение (Fear & Greed индекс): {fg.value}/100 ({fg.classification})")
+
+    if snapshot.top_news is not None:
+        n = snapshot.top_news
+        parts.append(f"- Водеща новина: \"{n.title}\" (Източник: {n.source or 'неизвестен'})")
+
+    if signals:
+        parts.append("- Сигнали от Strategy Lab:")
+        for signal in signals.values():
+            parts.append(f"  • {signal.strategy_name}: {signal.signal} — {signal.reasoning}")
+
+    return "\n".join(parts)
+
+
+async def cmd_copilot(args: List[str], context: CommandContext, container: Container) -> str:
+    """Trading Copilot: synthesizes /intel market data and Strategy Lab
+    signals into a short AI briefing (Trading Copilot roadmap item, final
+    TASK-021 item). Purely informational — never recommends buying or
+    selling, and always ends with a disclaimer regardless of what the AI
+    produced."""
+    if not args:
+        return _MSG_COPILOT_USAGE
+
+    try:
+        aggregator = container.resolve("market_intel_aggregator")
+    except KeyError:
+        return _MSG_COPILOT_INTEL_UNAVAILABLE
+
+    symbol = args[0].strip().lower()
+    snapshot = await aggregator.get_snapshot(symbol)
+
+    if snapshot.is_empty:
+        return _MSG_COPILOT_NO_DATA
+
+    signals = StrategyRegistry().evaluate_all(snapshot)
+
+    try:
+        ai_router = container.resolve("ai_router")
+    except KeyError:
+        return _MSG_AI_UNAVAILABLE
+
+    try:
+        ai_guard = container.resolve("ai_guard")
+    except KeyError:
+        ai_guard = None
+
+    prompt = _build_copilot_prompt(snapshot, signals)
+    messages = [{"role": "user", "content": prompt}]
+
+    logger.info(
+        "AI request started", command="copilot", user_id=context.user_id, symbol=snapshot.symbol
+    )
+
+    if ai_guard is not None:
+        try:
+            ai_guard.guard_request(context.user_id, prompt, messages)
+        except RateLimitExceededError:
+            return _MSG_AI_RATE_LIMIT
+        except PromptTooLargeError:
+            return _MSG_INVALID_INPUT
+        except ContextTooLargeError:
+            return _MSG_CONTEXT_TOO_LARGE
+
+    try:
+        if ai_guard is not None:
+            response = await ai_guard.call_provider(lambda: ai_router.chat(messages=messages))
+        else:
+            response = await ai_router.chat(messages=messages)
+    except ConfigurationError:
+        logger.warning("AI request failed: not configured", command="copilot")
+        return _MSG_AI_NOT_CONFIGURED
+    except AIProviderNotFoundError:
+        logger.warning("AI request failed: provider not found", command="copilot")
+        return _MSG_AI_PROVIDER_NOT_FOUND
+    except AIProviderTimeoutError:
+        logger.warning("AI request failed: timeout", command="copilot")
+        return _MSG_AI_TIMEOUT
+    except AIProviderConnectionError:
+        logger.warning("AI request failed: connection error", command="copilot")
+        return _MSG_AI_CONNECTION
+    except AIProviderRateLimitError:
+        logger.warning("AI request failed: rate limited", command="copilot")
+        return _MSG_AI_RATE_LIMIT
+    except AIProviderError:
+        logger.error("AI request failed: provider error", command="copilot")
+        return _MSG_AI_GENERIC_ERROR
+    except ValidationError:
+        logger.warning("AI request failed: invalid input", command="copilot")
+        return _MSG_INVALID_INPUT
+
+    logger.info("AI request completed", command="copilot", provider=response.provider)
+
+    if ai_guard is not None:
+        content = ai_guard.sanitize_output(response.content)
+    else:
+        content = _default_sanitizer().sanitize(response.content)
+
+    return (
+        f"✈️ Trading Copilot — {snapshot.symbol}\n\n"
+        f"{content}\n\n"
+        "⚠️ Само информативно — не е финансов съвет и не е препоръка за покупка/продажба.\n\n"
+        f"Provider: {response.provider}"
+    )
