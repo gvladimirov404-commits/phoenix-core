@@ -1047,3 +1047,48 @@ async def cmd_consensus(args: List[str], context: CommandContext, container: Con
         return "⚠️ Нито един AI provider не успя да отговори в момента. Опитай отново по-късно."
 
     return _format_consensus(result, ai_guard)
+
+
+from phoenix_core.ai.benchmark import PhoenixBenchmark
+
+_MSG_BENCHMARK_UNAVAILABLE = "AI слоят не е наличен в момента."
+
+
+def _format_benchmark(results) -> str:
+    if not results:
+        return "⚠️ Няма конфигуриран AI provider в момента."
+
+    lines = ["📊 Benchmark на AI provider-ите:", ""]
+    for name, bench in results.items():
+        lines.append(f"🤖 {name}:")
+        lines.append(
+            f"• Успеваемост: {bench.successes}/{bench.attempts} ({bench.success_rate * 100:.0f}%)"
+        )
+        if bench.successes:
+            lines.append(f"• Средно време за отговор: {bench.average_latency_seconds:.2f}s")
+        if bench.errors:
+            lines.append(f"• Грешки: {', '.join(bench.errors)}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+async def cmd_benchmark(args: List[str], context: CommandContext, container: Container) -> str:
+    """Run a fixed prompt set against every configured AI provider and
+    report latency/success rate per provider (Benchmark roadmap item).
+    Useful for deciding when a newly enabled provider is worth using,
+    or for spotting a provider that has started degrading."""
+    try:
+        ai_router = container.resolve("ai_router")
+    except KeyError:
+        return _MSG_BENCHMARK_UNAVAILABLE
+
+    if not ai_router.list_providers():
+        return _MSG_BENCHMARK_UNAVAILABLE
+
+    logger.info("Benchmark started", command="benchmark", user_id=context.user_id)
+
+    benchmark = PhoenixBenchmark(ai_router)
+    results = await benchmark.run()
+
+    return _format_benchmark(results)
