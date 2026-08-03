@@ -43,3 +43,13 @@ live_app.log
 
 # Waku local data
 .waku/
+
+# Database / runtime data (Task 022A hardening)
+*.db
+*.sqlite
+*.sqlite3
+
+# Database / runtime data (Task 022A hardening)
+*.db
+*.sqlite
+*.sqlite3
