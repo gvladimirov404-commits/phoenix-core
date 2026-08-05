@@ -1,15 +1,22 @@
 """
 MarketIntelligenceAggregator — combines already-available crypto/intel
-providers into a single "what\'s happening with this coin right now"
+providers into a single "what's happening with this coin right now"
 snapshot (TASK-021 Part 9 / Roadmap item 2).
 
 Synthesizes CryptoProvider (price/market), FeesProvider (BTC network fees),
 FearGreedProvider (overall market sentiment), and NewsProvider (latest
 headline) - no new external data source, purely composition of what
 Phoenix already fetches individually via /crypto, /gas, /fear, /news.
+
+The four sub-sources are fetched concurrently (TASK-022 speed
+optimization) rather than one after another — each is still wrapped in
+_safe_call so one slow/failing provider never blocks or blanks out the
+others, but the total wait time is now roughly the slowest single call
+instead of the sum of all four.
 """
+import asyncio
 from dataclasses import dataclass
-from typing import Awaitable, Optional, TypeVar
+from typing import Optional, TypeVar
 
 from phoenix_core.services.crypto.base import CryptoMarket, CryptoProvider
 from phoenix_core.services.intel.feargreed_provider import FearGreedProvider, FearGreedReading
@@ -45,11 +52,12 @@ class MarketSnapshot:
 class MarketIntelligenceAggregator:
     """Gathers a consolidated market snapshot from already-available providers.
 
-    Every sub-source is fetched independently and failures are isolated -
-    one provider being unavailable (e.g. mempool.space) must never prevent
-    the others from returning their part of the snapshot. Owns no HTTP
-    client of its own; each provider it composes has its own lifecycle
-    managed elsewhere.
+    Every sub-source is fetched concurrently and failures are isolated -
+    one provider being slow or unavailable (e.g. mempool.space) must never
+    prevent the others from returning their part of the snapshot, and must
+    never make the whole snapshot wait longer than the slowest single call.
+    Owns no HTTP client of its own; each provider it composes has its own
+    lifecycle managed elsewhere.
     """
 
     def __init__(
@@ -66,22 +74,32 @@ class MarketIntelligenceAggregator:
 
     async def get_snapshot(self, symbol: str) -> MarketSnapshot:
         """Return a MarketSnapshot for `symbol`. Network fees are only
-        included when `symbol` is BTC (FeesProvider is Bitcoin-specific)."""
-        market = await self._safe_call(self._crypto_provider.get_market(symbol))
+        included when `symbol` is BTC (FeesProvider is Bitcoin-specific).
+        All configured sub-sources are fetched concurrently."""
+        include_fees = self._fees_provider is not None and symbol.strip().lower() == "btc"
 
-        fear_greed = None
-        if self._feargreed_provider is not None:
-            fear_greed = await self._safe_call(self._feargreed_provider.get_current())
+        market_task = self._safe_call(self._crypto_provider.get_market(symbol))
+        fear_greed_task = (
+            self._safe_call(self._feargreed_provider.get_current())
+            if self._feargreed_provider is not None
+            else self._none_result()
+        )
+        fees_task = (
+            self._safe_call(self._fees_provider.get_recommended_fees())
+            if include_fees
+            else self._none_result()
+        )
+        news_task = (
+            self._safe_call(self._news_provider.get_news(symbol, limit=1))
+            if self._news_provider is not None
+            else self._none_result()
+        )
 
-        fees = None
-        if self._fees_provider is not None and symbol.strip().lower() == "btc":
-            fees = await self._safe_call(self._fees_provider.get_recommended_fees())
+        market, fear_greed, fees, news_items = await asyncio.gather(
+            market_task, fear_greed_task, fees_task, news_task
+        )
 
-        top_news = None
-        if self._news_provider is not None:
-            news_items = await self._safe_call(self._news_provider.get_news(symbol, limit=1))
-            if news_items:
-                top_news = news_items[0]
+        top_news = news_items[0] if news_items else None
 
         return MarketSnapshot(
             symbol=symbol.strip().upper(),
@@ -102,3 +120,7 @@ class MarketIntelligenceAggregator:
                 error_type=type(e).__name__,
             )
             return None
+
+    @staticmethod
+    async def _none_result():
+        return None
