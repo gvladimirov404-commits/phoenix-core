@@ -51,9 +51,11 @@ Everything is wired through a small dependency-injection `Container` (`phoenix_c
 | `/consensus <question>` | Asks every configured AI provider the same question side by side (ready for a second provider like DeepSeek with zero code changes) |
 | `/strategy <symbol>` | Evaluates simple, transparent rules (contrarian sentiment, momentum) against live data — always labeled "informational, not financial advice" |
 | `/copilot <symbol>` | The flagship command — synthesizes everything above into one AI-written briefing |
+| `/research <symbol>` | Structured, evidence-based report: market data, Strategy Lab signals, risks, sources, and an explicit confidence label based on how much data was actually available |
 | `/benchmark` | Measures latency and success rate of every configured AI provider |
 | `/plugins` | Lists every loaded plugin; drop a `.py` file in `plugins/` to add a command without touching core code |
-| `/watch`, `/brief`, `/news`, `/fear`, `/gas`, `/crypto` | Underlying data primitives `/intel` composes — also usable standalone |
+| `/watch <symbol>` | Adds a coin to your watchlist and turns on background monitoring — Phoenix checks it periodically and sends you a Telegram alert if something significant changes (price move, sentiment shift, fee spike, new headline), even if you never ask |
+| `/brief`, `/news`, `/fear`, `/gas`, `/crypto` | Underlying data primitives `/intel` composes — also usable standalone |
 | `/ask`, `/reset`, `/memory` | General-purpose AI chat with persistent, per-user conversation memory |
 
 Full list with examples: send `/help` to the running bot.
@@ -68,6 +70,17 @@ Full list with examples: send `/help` to the running bot.
 6. **AI provider status** — the reply is signed with which provider answered (`Provider: groq`), matching what `/consensus` and `/benchmark` report.
 
 One command, one bot, no context-switching.
+
+## From watching to research to synthesis
+
+`/watch`, `/research`, and `/copilot` are designed to work together, not as three separate tools:
+
+1. **`/watch <symbol>`** turns on background monitoring for a coin. Phoenix periodically checks it against its own last known snapshot — no AI involved in this step, just deterministic comparison (price move, sentiment shift, fee spike, new headline).
+2. **Alert** — if something significant changed, Phoenix sends you a Telegram message about it, without you asking.
+3. **`/research <symbol>`** — when you want the full picture, this gives you a structured report: the same market data, Strategy Lab signals, an explicit list of which data sources were actually available, and a confidence label reflecting that coverage — not a guess dressed up as certainty.
+4. **`/copilot <symbol>`** — when you want it synthesized into a short, readable briefing instead of a structured report, this is the AI-written version of the same underlying data.
+
+Same data, three ways to consume it — raw, evidence-labeled, or AI-summarized.
 
 ## Installation
 
