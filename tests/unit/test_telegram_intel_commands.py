@@ -245,7 +245,10 @@ class TestCmdHelpOnboarding:
         assert "Добре дошъл" in result
         assert "/watch — Watchlist" in result
         assert "Колко струва bitcoin?" in result
-        assert "Предстои" in result
+        assert "/watch" in result
+        assert "/research" in result
+        assert "/copilot" in result
+        assert "Предстои" not in result
 
 from phoenix_core.services.crypto.base import CryptoMarket, CryptoPrice, CryptoProvider
 from phoenix_core.services.intel.aggregator import MarketIntelligenceAggregator

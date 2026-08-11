@@ -154,7 +154,13 @@ async def cmd_help(args: List[str], context: CommandContext, container: Containe
         "👋 Добре дошъл в Phoenix Core!",
         "",
         "Твоят ежедневен крипто и AI асистент в Telegram — цени, новини,",
-        "пазарно настроение, такси по мрежата и watchlist, плюс AI отговори.",
+        "пазарно настроение, такси по мрежата, плюс AI отговори.",
+        "",
+        "Три неща изграждат основния workflow:",
+        "🔭 /watch — пасивно наблюдение във фонов режим; Phoenix ти пише сам, "
+        "ако нещо значимо се промени",
+        "🔎 /research — evidence-based доклад с ясно посочени данни и увереност",
+        "🧠 /copilot — AI обобщава пазара в кратък брифинг",
         "",
         "📖 Команди:",
     ]
@@ -166,10 +172,6 @@ async def cmd_help(args: List[str], context: CommandContext, container: Containe
         "💬 Примерни въпроси (пиши директно, без команда):",
         "• Колко струва bitcoin?",
         "• Какво е asyncio?",
-        "",
-        "🔮 Предстои:",
-        "• Известия при резки промени в watchlist-а",
-        "• По-задълбочен пазарен анализ",
     ])
     return "\n".join(lines)
 
