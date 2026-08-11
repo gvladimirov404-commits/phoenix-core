@@ -126,6 +126,7 @@ class TelegramBot:
         self._dispatcher.register("fear", telegram_commands.cmd_fear, "Fear & Greed Index — текущо пазарно настроение")
         self._dispatcher.register("gas", telegram_commands.cmd_gas, "Препоръчителни такси по Bitcoin мрежата")
         self._dispatcher.register("watch", telegram_commands.cmd_watch, "Watchlist — добави или покажи следени монети (напр. /watch btc eth sol)")
+        self._dispatcher.register("research", telegram_commands.cmd_research, "Пълен AI research доклад: пазар, сигнали, evidence, AI анализ (напр. /research btc)")
         # Exposed via the container so cmd_help can list all commands without
         # this module needing to duplicate the registry.
         self.container.register("command_dispatcher", self._dispatcher)

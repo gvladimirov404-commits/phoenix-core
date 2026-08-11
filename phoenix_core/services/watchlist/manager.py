@@ -63,3 +63,12 @@ class WatchlistManager:
 
     async def health_check(self) -> Dict[str, Any]:
         return self._store.health_check()
+
+    def list_watchers(self, symbol: str) -> List[int]:
+        """Return every user_id currently watching `symbol` (Task 023 Phase G)."""
+        return self._store.list_watchers(symbol)
+
+    def list_all_symbols(self) -> List[str]:
+        """Return every distinct symbol currently watched by at least one
+        user, across all watchlists (Task 023 Phase G)."""
+        return self._store.list_all_symbols()

@@ -131,6 +131,21 @@ class NewsConfig(BaseSettings):
     cache_ttl_seconds: float = Field(default=60.0, ge=1.0, description="How long cached responses stay valid")
 
 
+class AlertsConfig(BaseSettings):
+    """Alert pipeline configuration (Task 023 Phase G). Periodic background
+    polling checks every watched symbol for significant changes and
+    notifies watchers — independent of /research."""
+    model_config = SettingsConfigDict(env_prefix="PHOENIX_ALERTS_")
+
+    enabled: bool = Field(default=True, description="Enable the background alert pipeline")
+    poll_interval_seconds: float = Field(
+        default=300.0, ge=10.0, description="How often the alert scheduler checks watched symbols"
+    )
+    cooldown_seconds: float = Field(
+        default=1800.0, ge=0.0, description="Minimum time between repeat alerts of the same kind for a symbol"
+    )
+
+
 class Settings(BaseSettings):
     """Main application settings"""
     model_config = SettingsConfigDict(
@@ -202,6 +217,9 @@ class Settings(BaseSettings):
 
     # News (Task 020)
     news: NewsConfig = Field(default_factory=NewsConfig)
+
+    # Alerts (Task 023 Phase G)
+    alerts: AlertsConfig = Field(default_factory=AlertsConfig)
 
     # Paths
     data_dir: str = Field(default="./data", description="Data directory")

@@ -38,7 +38,7 @@ class TestCommandRegistration:
         assert names == {
             "start", "help", "version", "status", "health",
             "repo", "issues", "plugins", "ai", "ask", "reset", "memory", "crypto",
-            "news", "fear", "gas", "watch", "brief", "intel", "explain", "consensus", "benchmark", "strategy", "copilot",
+            "news", "fear", "gas", "watch", "brief", "intel", "explain", "consensus", "benchmark", "strategy", "copilot", "research",
         }
 
     def test_exposes_dispatcher_via_container(self) -> None:

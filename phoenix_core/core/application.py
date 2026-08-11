@@ -28,6 +28,11 @@ from phoenix_core.plugins.registry import PluginRegistry
 from phoenix_core.telegram.bot import TelegramBot
 from phoenix_core.utils.logger import configure_logging, get_logger
 from phoenix_core.utils.exceptions import PhoenixError, StorageError
+from phoenix_core.services.research.snapshot_store import SQLiteSnapshotStore
+from phoenix_core.services.research.alert_cooldown_store import SQLiteAlertCooldownStore
+from phoenix_core.services.research.alert_service import AlertService
+from phoenix_core.services.research.alert_scheduler import AlertScheduler
+from phoenix_core.services.notifications.telegram_notification import TelegramNotificationService
 
 logger = get_logger(__name__)
 
@@ -231,6 +236,63 @@ class PhoenixApplication:
             if _plugin_dispatcher is not None:
                 plugin_registry.register_all_commands(_plugin_dispatcher)
         self._components.append(plugin_registry)
+
+        # Alert pipeline (Task 023 Phase G) — conditional on crypto being
+        # enabled (needs market_intel_aggregator), the alert feature flag,
+        # and telegram_bot being configured (needs a notification channel).
+        # Any missing piece degrades to "alerts disabled", never a crash.
+        if self.settings.alerts.enabled and self.settings.crypto.enabled:
+            try:
+                snapshot_store = SQLiteSnapshotStore(db_path=self.settings.sqlite_database)
+                snapshot_store.initialize()
+                alert_cooldown_store = SQLiteAlertCooldownStore(db_path=self.settings.sqlite_database)
+                alert_cooldown_store.initialize()
+            except StorageError as e:
+                logger.error(
+                    "Alert storage unavailable, alert pipeline disabled",
+                    database_path=self.settings.sqlite_database,
+                    error=str(e),
+                )
+                snapshot_store = None
+                alert_cooldown_store = None
+
+            if snapshot_store is not None and alert_cooldown_store is not None:
+                self.container.register("snapshot_store", snapshot_store)
+
+                try:
+                    _aggregator_for_alerts = self.container.resolve("market_intel_aggregator")
+                except KeyError:
+                    _aggregator_for_alerts = None
+
+                try:
+                    _telegram_bot_for_alerts = self.container.resolve("telegram_bot")
+                except KeyError:
+                    _telegram_bot_for_alerts = None
+
+                if _aggregator_for_alerts is not None and _telegram_bot_for_alerts is not None:
+                    notification_service = TelegramNotificationService(_telegram_bot_for_alerts)
+                    self.container.register("notification_service", notification_service)
+
+                    alert_service = AlertService(
+                        aggregator=_aggregator_for_alerts,
+                        snapshot_store=snapshot_store,
+                        cooldown_store=alert_cooldown_store,
+                        watchlist_manager=watchlist_manager,
+                        notification_service=notification_service,
+                        cooldown_seconds=self.settings.alerts.cooldown_seconds,
+                    )
+                    self.container.register("alert_service", alert_service)
+
+                    alert_scheduler = AlertScheduler(
+                        alert_service=alert_service,
+                        interval_seconds=self.settings.alerts.poll_interval_seconds,
+                    )
+                    self.container.register("alert_scheduler", alert_scheduler)
+                    self._components.append(alert_scheduler)
+                else:
+                    logger.warning(
+                        "Alert pipeline disabled: market intelligence or Telegram bot not available"
+                    )
 
         logger.info("Container initialized with all services")
 

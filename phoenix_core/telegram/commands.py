@@ -1278,3 +1278,208 @@ async def cmd_copilot(args: List[str], context: CommandContext, container: Conta
         "⚠️ Само информативно — не е финансов съвет и не е препоръка за покупка/продажба.\n\n"
         f"Provider: {response.provider}"
     )
+
+
+from phoenix_core.services.research.evidence import derive_evidence
+
+_MSG_RESEARCH_USAGE = "Употреба: /research <символ>. Пример: /research btc"
+_MSG_RESEARCH_INTEL_UNAVAILABLE = "Модулът за пазарен преглед не е наличен."
+_MSG_RESEARCH_NO_DATA = "⚠️ Не успях да взема достатъчно данни за проучването. Опитай отново по-късно."
+
+
+def _build_research_prompt(snapshot, signals, evidence) -> str:
+    """Ask the AI only for the interpretive narrative — every factual figure
+    in the final report is assembled separately in code, from real data,
+    never from the model (crypto-research Skill, Evidence rules)."""
+    parts = [
+        f"Ти си крипто анализатор. Напиши кратко проучване за {snapshot.symbol} на български, "
+        "в два ясно означени раздела:\n"
+        "СЪБИТИЯ И АНАЛИЗ: (3-4 изречения какво се случва и защо, базирано САМО на данните по-долу)\n"
+        "ИЗВОД: (1 изречение, БЕЗ пряка препоръка за покупка/продажба)\n"
+        "Не измисляй факти извън дадените данни. Ако липсва информация, кажи го изрично."
+    ]
+    if snapshot.market is not None:
+        m = snapshot.market
+        change_str = f"{m.change_24h_pct:+.2f}%" if m.change_24h_pct is not None else "неизвестна"
+        parts.append(f"- Цена: {m.price_usd} USD, промяна 24ч: {change_str}")
+    if snapshot.fear_greed is not None:
+        fg = snapshot.fear_greed
+        parts.append(f"- Настроение: {fg.value}/100 ({fg.classification})")
+    if snapshot.top_news is not None:
+        n = snapshot.top_news
+        parts.append(f"- Новина: \"{n.title}\" ({n.source or 'неизвестен източник'})")
+    if signals:
+        parts.append("- Strategy сигнали:")
+        for s in signals.values():
+            parts.append(f"  • {s.strategy_name}: {s.signal} — {s.reasoning}")
+    parts.append(f"- Покритие на данните: {evidence.coverage_fraction} ({evidence.confidence})")
+    return "\n".join(parts)
+
+
+def _derive_research_conclusion(signals) -> str:
+    """Purely rule-derived — never asks the AI — so the CONCLUSION line can
+    never drift from what the signals actually say (crypto-research Skill,
+    Pitfalls: never let free text read as investment advice)."""
+    if not signals:
+        return "Недостатъчно сигнали за извод."
+    values = [s.signal for s in signals.values()]
+    if all(v == "unknown" for v in values):
+        return "Недостатъчно данни за извод."
+    bullish = values.count("bullish")
+    bearish = values.count("bearish")
+    if bullish > bearish:
+        return "Преобладават бичи сигнали от Strategy Lab — информативно, не препоръка."
+    if bearish > bullish:
+        return "Преобладават мечи сигнали от Strategy Lab — информативно, не препоръка."
+    return "Смесени или неутрални сигнали — няма ясна преобладаваща насока."
+
+
+def _format_research_report(snapshot, signals, evidence, ai_text, provider) -> str:
+    lines = [f"🔎 PHOENIX RESEARCH — {snapshot.symbol}", ""]
+
+    lines.append("📊 MARKET")
+    if snapshot.market is not None:
+        m = snapshot.market
+        change_str = f"{m.change_24h_pct:+.2f}%" if m.change_24h_pct is not None else "неизвестна"
+        lines.append(f"Цена: {m.price_usd} USD | 24ч: {change_str}")
+    else:
+        lines.append("Не е налично.")
+    lines.append("")
+
+    lines.append("📰 WHAT'S HAPPENING")
+    if snapshot.top_news is not None:
+        lines.append(f"\"{snapshot.top_news.title}\"")
+    else:
+        lines.append("Няма налична новина в момента.")
+    lines.append("")
+
+    lines.append("📈 SIGNALS")
+    if signals:
+        for s in signals.values():
+            icon = _STRATEGY_SIGNAL_ICONS.get(s.signal, "⚪")
+            lines.append(f"{icon} {s.strategy_name}: {s.reasoning}")
+    else:
+        lines.append("Не е налично.")
+    lines.append("")
+
+    lines.append("⚠️ RISKS")
+    lines.append("Пазарът на криптовалути е силно волатилен — цената може рязко да се промени без предупреждение.")
+    lines.append("")
+
+    lines.append("🔎 EVIDENCE")
+    lines.append(f"Налични: {', '.join(evidence.available_sources) or 'няма'}")
+    if evidence.missing_sources:
+        lines.append(f"Липсващи: {', '.join(evidence.missing_sources)}")
+    lines.append("")
+
+    source_names = []
+    if snapshot.top_news is not None and snapshot.top_news.source:
+        source_names.append(snapshot.top_news.source)
+    source_names.append("CoinGecko")
+    source_names.append("alternative.me (Fear & Greed)")
+    lines.append("📚 SOURCES")
+    lines.append(", ".join(source_names))
+    lines.append("")
+
+    lines.append("🧠 AI ANALYSIS")
+    lines.append(ai_text)
+    lines.append("")
+
+    lines.append("🎯 CONCLUSION")
+    lines.append(_derive_research_conclusion(signals))
+    lines.append("")
+
+    lines.append(
+        f"CONFIDENCE: {evidence.confidence} ({evidence.coverage_fraction} източника — "
+        "отразява покритие на данните, не истинност)"
+    )
+    lines.append(f"Provider: {provider}")
+
+    return "\n".join(lines)
+
+
+async def cmd_research(args: List[str], context: CommandContext, container: Container) -> str:
+    """Phoenix's first Skill-driven command (crypto-research Skill,
+    skills/research/crypto-research/SKILL.md). Produces a structured
+    intelligence report: market data, signals, evidence coverage, an
+    AI-written interpretation — never a buy/sell recommendation, and
+    confidence always labeled as evidence coverage, not correctness."""
+    if not args:
+        return _MSG_RESEARCH_USAGE
+
+    try:
+        aggregator = container.resolve("market_intel_aggregator")
+    except KeyError:
+        return _MSG_RESEARCH_INTEL_UNAVAILABLE
+
+    symbol = args[0].strip().lower()
+    snapshot = await aggregator.get_snapshot(symbol)
+
+    if snapshot.is_empty:
+        return _MSG_RESEARCH_NO_DATA
+
+    signals = StrategyRegistry().evaluate_all(snapshot)
+    evidence = derive_evidence(snapshot)
+
+    try:
+        ai_router = container.resolve("ai_router")
+    except KeyError:
+        return _MSG_AI_UNAVAILABLE
+
+    try:
+        ai_guard = container.resolve("ai_guard")
+    except KeyError:
+        ai_guard = None
+
+    prompt = _build_research_prompt(snapshot, signals, evidence)
+    messages = [{"role": "user", "content": prompt}]
+
+    logger.info(
+        "AI request started", command="research", user_id=context.user_id, symbol=snapshot.symbol
+    )
+
+    if ai_guard is not None:
+        try:
+            ai_guard.guard_request(context.user_id, prompt, messages)
+        except RateLimitExceededError:
+            return _MSG_AI_RATE_LIMIT
+        except PromptTooLargeError:
+            return _MSG_INVALID_INPUT
+        except ContextTooLargeError:
+            return _MSG_CONTEXT_TOO_LARGE
+
+    try:
+        if ai_guard is not None:
+            response = await ai_guard.call_provider(lambda: ai_router.chat(messages=messages))
+        else:
+            response = await ai_router.chat(messages=messages)
+    except ConfigurationError:
+        logger.warning("AI request failed: not configured", command="research")
+        return _MSG_AI_NOT_CONFIGURED
+    except AIProviderNotFoundError:
+        logger.warning("AI request failed: provider not found", command="research")
+        return _MSG_AI_PROVIDER_NOT_FOUND
+    except AIProviderTimeoutError:
+        logger.warning("AI request failed: timeout", command="research")
+        return _MSG_AI_TIMEOUT
+    except AIProviderConnectionError:
+        logger.warning("AI request failed: connection error", command="research")
+        return _MSG_AI_CONNECTION
+    except AIProviderRateLimitError:
+        logger.warning("AI request failed: rate limited", command="research")
+        return _MSG_AI_RATE_LIMIT
+    except AIProviderError:
+        logger.error("AI request failed: provider error", command="research")
+        return _MSG_AI_GENERIC_ERROR
+    except ValidationError:
+        logger.warning("AI request failed: invalid input", command="research")
+        return _MSG_INVALID_INPUT
+
+    logger.info("AI request completed", command="research", provider=response.provider)
+
+    if ai_guard is not None:
+        ai_text = ai_guard.sanitize_output(response.content)
+    else:
+        ai_text = _default_sanitizer().sanitize(response.content)
+
+    return _format_research_report(snapshot, signals, evidence, ai_text, response.provider)

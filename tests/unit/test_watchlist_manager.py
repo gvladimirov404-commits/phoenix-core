@@ -56,3 +56,41 @@ class TestWatchlistManager:
         manager = WatchlistManager()
         manager.add_symbols(1, ["btc"])
         await manager.stop()  # must not raise
+
+
+class TestListWatchersAndAllSymbols:
+    """Tests for the read-only reverse-lookup extensions (Task 023 Phase G)."""
+
+    def test_list_watchers_returns_users_watching_symbol(self) -> None:
+        manager = WatchlistManager()
+        manager.add_symbols(1, ["btc"])
+        manager.add_symbols(2, ["btc", "eth"])
+
+        watchers = manager.list_watchers("BTC")
+
+        assert set(watchers) == {1, 2}
+
+    def test_list_watchers_returns_empty_when_nobody_watches(self) -> None:
+        manager = WatchlistManager()
+        manager.add_symbols(1, ["btc"])
+
+        assert manager.list_watchers("SOL") == []
+
+    def test_list_watchers_is_case_insensitive(self) -> None:
+        manager = WatchlistManager()
+        manager.add_symbols(1, ["btc"])
+
+        assert manager.list_watchers("btc") == [1]
+
+    def test_list_all_symbols_deduplicates_across_users(self) -> None:
+        manager = WatchlistManager()
+        manager.add_symbols(1, ["btc", "eth"])
+        manager.add_symbols(2, ["btc", "sol"])
+
+        symbols = manager.list_all_symbols()
+
+        assert set(symbols) == {"BTC", "ETH", "SOL"}
+
+    def test_list_all_symbols_empty_when_no_watchlists(self) -> None:
+        manager = WatchlistManager()
+        assert manager.list_all_symbols() == []

@@ -130,3 +130,23 @@ class SQLiteWatchlistStore:
         if self._conn is None:
             raise RuntimeError("SQLiteWatchlistStore.initialize() must be called before use")
         return self._conn
+
+    def list_watchers(self, symbol: str) -> List[int]:
+        """Return every user_id currently watching `symbol` (Task 023 Phase G,
+        read-only extension — no schema change)."""
+        conn = self._require_conn()
+        normalized = symbol.strip().upper()
+        rows = conn.execute(
+            "SELECT DISTINCT user_id FROM watchlist_items WHERE symbol = ? ORDER BY user_id ASC",
+            (normalized,),
+        ).fetchall()
+        return [row[0] for row in rows]
+
+    def list_all_symbols(self) -> List[str]:
+        """Return every distinct symbol currently watched by at least one
+        user, across all watchlists (Task 023 Phase G)."""
+        conn = self._require_conn()
+        rows = conn.execute(
+            "SELECT DISTINCT symbol FROM watchlist_items ORDER BY symbol ASC"
+        ).fetchall()
+        return [row[0] for row in rows]
