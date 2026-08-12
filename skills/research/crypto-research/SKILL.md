@@ -63,6 +63,7 @@ updating this file to match.
   stay a plain description of which signals dominate, nothing more.
 
 ## Verification
-- `tests/unit/test_research_evidence.py` — evidence/confidence derivation.
-- `tests/unit/test_telegram_research_command.py` — `/research` end-to-end,
-  including missing-data and AI-failure paths.
+- `tests/unit/test_research_capability.py` — the extracted business
+  logic (`phoenix_core.services.research.research_capability.run_research`),
+  including missing-data and AI-failure paths, tested directly without
+  any Telegram objects.

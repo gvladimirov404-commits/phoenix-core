@@ -1289,7 +1289,12 @@ async def cmd_copilot(args: List[str], context: CommandContext, container: Conta
     )
 
 
-from phoenix_core.services.research.evidence import derive_evidence
+from phoenix_core.services.research.research_capability import (
+    ResearchAIError,
+    ResearchNoDataError,
+    ResearchUnavailableError,
+    run_research,
+)
 
 _MSG_RESEARCH_USAGE = "Употреба: /research <символ>. Пример: /research btc"
 _MSG_RESEARCH_INTEL_UNAVAILABLE = "Модулът за пазарен преглед не е наличен."
@@ -1409,86 +1414,42 @@ def _format_research_report(snapshot, signals, evidence, ai_text, provider) -> s
 
 async def cmd_research(args: List[str], context: CommandContext, container: Container) -> str:
     """Phoenix's first Skill-driven command (crypto-research Skill,
-    skills/research/crypto-research/SKILL.md). Produces a structured
-    intelligence report: market data, signals, evidence coverage, an
-    AI-written interpretation — never a buy/sell recommendation, and
-    confidence always labeled as evidence coverage, not correctness."""
+    skills/research/crypto-research/SKILL.md). Thin Telegram adapter —
+    all orchestration lives in phoenix_core.services.research.
+    research_capability.run_research (TASK-023 P1 #1), so the same
+    business logic is callable independently of Telegram. This function
+    only maps ResearchResult / errors to the existing response strings,
+    preserving the exact prior /research output and error messages."""
     if not args:
         return _MSG_RESEARCH_USAGE
 
-    try:
-        aggregator = container.resolve("market_intel_aggregator")
-    except KeyError:
-        return _MSG_RESEARCH_INTEL_UNAVAILABLE
-
     symbol = args[0].strip().lower()
-    snapshot = await aggregator.get_snapshot(symbol)
-
-    if snapshot.is_empty:
-        return _MSG_RESEARCH_NO_DATA
-
-    signals = StrategyRegistry().evaluate_all(snapshot)
-    evidence = derive_evidence(snapshot)
 
     try:
-        ai_router = container.resolve("ai_router")
-    except KeyError:
+        result = await run_research(
+            symbol=symbol,
+            container=container,
+            build_prompt=_build_research_prompt,
+            user_id=context.user_id,
+        )
+    except ResearchUnavailableError as e:
+        if "market_intel_aggregator" in str(e):
+            return _MSG_RESEARCH_INTEL_UNAVAILABLE
         return _MSG_AI_UNAVAILABLE
+    except ResearchNoDataError:
+        return _MSG_RESEARCH_NO_DATA
+    except ResearchAIError as e:
+        return {
+            "rate_limit": _MSG_AI_RATE_LIMIT,
+            "invalid_input": _MSG_INVALID_INPUT,
+            "context_too_large": _MSG_CONTEXT_TOO_LARGE,
+            "not_configured": _MSG_AI_NOT_CONFIGURED,
+            "provider_not_found": _MSG_AI_PROVIDER_NOT_FOUND,
+            "timeout": _MSG_AI_TIMEOUT,
+            "connection": _MSG_AI_CONNECTION,
+            "generic_error": _MSG_AI_GENERIC_ERROR,
+        }.get(e.reason, _MSG_AI_GENERIC_ERROR)
 
-    try:
-        ai_guard = container.resolve("ai_guard")
-    except KeyError:
-        ai_guard = None
-
-    prompt = _build_research_prompt(snapshot, signals, evidence)
-    messages = [{"role": "user", "content": prompt}]
-
-    logger.info(
-        "AI request started", command="research", user_id=context.user_id, symbol=snapshot.symbol
+    return _format_research_report(
+        result.snapshot, result.signals, result.evidence, result.ai_text, result.provider
     )
-
-    if ai_guard is not None:
-        try:
-            ai_guard.guard_request(context.user_id, prompt, messages)
-        except RateLimitExceededError:
-            return _MSG_AI_RATE_LIMIT
-        except PromptTooLargeError:
-            return _MSG_INVALID_INPUT
-        except ContextTooLargeError:
-            return _MSG_CONTEXT_TOO_LARGE
-
-    try:
-        if ai_guard is not None:
-            response = await ai_guard.call_provider(lambda: ai_router.chat(messages=messages))
-        else:
-            response = await ai_router.chat(messages=messages)
-    except ConfigurationError:
-        logger.warning("AI request failed: not configured", command="research")
-        return _MSG_AI_NOT_CONFIGURED
-    except AIProviderNotFoundError:
-        logger.warning("AI request failed: provider not found", command="research")
-        return _MSG_AI_PROVIDER_NOT_FOUND
-    except AIProviderTimeoutError:
-        logger.warning("AI request failed: timeout", command="research")
-        return _MSG_AI_TIMEOUT
-    except AIProviderConnectionError:
-        logger.warning("AI request failed: connection error", command="research")
-        return _MSG_AI_CONNECTION
-    except AIProviderRateLimitError:
-        logger.warning("AI request failed: rate limited", command="research")
-        return _MSG_AI_RATE_LIMIT
-    except AIProviderError:
-        logger.error("AI request failed: provider error", command="research")
-        return _MSG_AI_GENERIC_ERROR
-    except ValidationError:
-        logger.warning("AI request failed: invalid input", command="research")
-        return _MSG_INVALID_INPUT
-
-    logger.info("AI request completed", command="research", provider=response.provider)
-
-    if ai_guard is not None:
-        ai_text = ai_guard.sanitize_output(response.content)
-    else:
-        ai_text = _default_sanitizer().sanitize(response.content)
-
-    return _format_research_report(snapshot, signals, evidence, ai_text, response.provider)
