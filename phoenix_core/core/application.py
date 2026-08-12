@@ -37,6 +37,19 @@ from phoenix_core.services.notifications.telegram_notification import TelegramNo
 logger = get_logger(__name__)
 
 
+class _SQLiteStoreLifecycleAdapter:
+    """Minimal adapter so a raw SQLite store (whose only shutdown hook is
+    close(), not the async stop() the component lifecycle expects) gets
+    closed exactly once during PhoenixApplication.stop() (Task 023 Phase G
+    lifecycle audit)."""
+
+    def __init__(self, store: Any) -> None:
+        self._store = store
+
+    async def stop(self) -> None:
+        self._store.close()
+
+
 class PhoenixApplication:
     """Main application orchestrator"""
     def __init__(self, settings: Settings) -> None:
@@ -242,6 +255,8 @@ class PhoenixApplication:
         # and telegram_bot being configured (needs a notification channel).
         # Any missing piece degrades to "alerts disabled", never a crash.
         if self.settings.alerts.enabled and self.settings.crypto.enabled:
+            snapshot_store = None
+            alert_cooldown_store = None
             try:
                 snapshot_store = SQLiteSnapshotStore(db_path=self.settings.sqlite_database)
                 snapshot_store.initialize()
@@ -253,11 +268,15 @@ class PhoenixApplication:
                     database_path=self.settings.sqlite_database,
                     error=str(e),
                 )
+                if snapshot_store is not None:
+                    snapshot_store.close()
                 snapshot_store = None
                 alert_cooldown_store = None
 
             if snapshot_store is not None and alert_cooldown_store is not None:
                 self.container.register("snapshot_store", snapshot_store)
+                self._components.append(_SQLiteStoreLifecycleAdapter(snapshot_store))
+                self._components.append(_SQLiteStoreLifecycleAdapter(alert_cooldown_store))
 
                 try:
                     _aggregator_for_alerts = self.container.resolve("market_intel_aggregator")
