@@ -26,6 +26,7 @@ from phoenix_core.memory.context_builder import ContextBuilder
 from phoenix_core.memory.manager import ConversationManager
 from phoenix_core.plugins.registry import PluginRegistry
 from phoenix_core.telegram.bot import TelegramBot
+from phoenix_core.integrations.chanify import ChanifyIntegration
 from phoenix_core.utils.logger import configure_logging, get_logger
 from phoenix_core.utils.exceptions import PhoenixError, StorageError
 from phoenix_core.services.research.snapshot_store import SQLiteSnapshotStore
@@ -216,6 +217,11 @@ class PhoenixApplication:
             watchlist_manager = WatchlistManager()
         self.container.register("watchlist_manager", watchlist_manager)
         self._components.append(watchlist_manager)
+
+        # Chanify advertising integration is optional and disabled by default.
+        chanify_integration = ChanifyIntegration(self.settings.chanify)
+        self.container.register("chanify", chanify_integration)
+        self._components.append(chanify_integration)
 
         if self.settings.telegram.bot_token.get_secret_value():
             telegram_bot = TelegramBot(

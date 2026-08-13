@@ -8,6 +8,7 @@ aiohttp==3.14.2
 
 # Telegram
 python-telegram-bot[job-queue]==22.8
+chanify==0.1.0
 
 # Configuration & Validation
 pydantic==2.13.4

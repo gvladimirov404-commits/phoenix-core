@@ -226,6 +226,23 @@ class TelegramBot:
             text_to_send = f"({index}/{total})\n{chunk}" if total > 1 else chunk
             await message.reply_text(text_to_send)
 
+        # Chanify advertising: show an ad after successful AI answers.
+        # Advertising failures are isolated by ChanifyIntegration and
+        # must never affect Phoenix Core's Telegram functionality.
+        if command_name == "ask":
+            try:
+                chanify = self.container.resolve("chanify")
+                if getattr(chanify, "enabled", False):
+                    await chanify.show_ad(
+                        chat_id=chat_id,
+                        user=telegram_user,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Chanify advertising integration failed",
+                    error_type=type(exc).__name__,
+                )
+
     async def _on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Catch every exception raised while processing an update (Task 017).
 

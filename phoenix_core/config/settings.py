@@ -35,6 +35,21 @@ class AIProviderConfig(BaseSettings):
     enabled: bool = Field(default=True, description="Whether provider is enabled")
 
 
+class ChanifyConfig(BaseSettings):
+    """Chanify advertising integration configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="PHOENIX_CHANIFY_")
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable Chanify advertising",
+    )
+    api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="Chanify publisher API key",
+    )
+
+
 class TelegramConfig(BaseSettings):
     """Telegram bot configuration"""
     model_config = SettingsConfigDict(env_prefix="PHOENIX_TELEGRAM_")
@@ -199,6 +214,8 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
+    # Chanify
+    chanify: ChanifyConfig = Field(default_factory=ChanifyConfig)
 
     # GitHub
     github: GitHubConfig = Field(default_factory=GitHubConfig)
