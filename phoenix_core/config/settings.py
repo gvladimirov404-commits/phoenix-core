@@ -98,6 +98,20 @@ class LoggingConfig(BaseSettings):
         return v.upper()
 
 
+class SkillsConfig(BaseSettings):
+    """Skill Manager configuration (Task 024). Skills are declarative
+    SKILL.md instruction files — this is unrelated to PluginConfig,
+    which governs executable Python plugins."""
+    model_config = SettingsConfigDict(env_prefix="PHOENIX_SKILLS_")
+
+    enabled: bool = Field(default=True, description="Enable the Skill Manager")
+    directories: List[str] = Field(
+        default=["skills"],
+        description="Directories to scan recursively for SKILL.md files",
+    )
+    auto_load: bool = Field(default=True, description="Auto-discover skills on startup")
+
+
 class PluginConfig(BaseSettings):
     """Plugin system configuration"""
     model_config = SettingsConfigDict(env_prefix="PHOENIX_PLUGIN_")
@@ -225,6 +239,9 @@ class Settings(BaseSettings):
 
     # Plugins
     plugins: PluginConfig = Field(default_factory=PluginConfig)
+
+    # Skills (Task 024)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
 
     # Security
     security: SecurityConfig = Field(default_factory=SecurityConfig)

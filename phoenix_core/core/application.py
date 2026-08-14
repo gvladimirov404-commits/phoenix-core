@@ -25,6 +25,7 @@ from phoenix_core.services.watchlist.manager import WatchlistManager
 from phoenix_core.memory.context_builder import ContextBuilder
 from phoenix_core.memory.manager import ConversationManager
 from phoenix_core.plugins.registry import PluginRegistry
+from phoenix_core.skills import SkillManager
 from phoenix_core.telegram.bot import TelegramBot
 from phoenix_core.integrations.chanify import ChanifyIntegration
 from phoenix_core.utils.logger import configure_logging, get_logger
@@ -255,6 +256,11 @@ class PhoenixApplication:
             if _plugin_dispatcher is not None:
                 plugin_registry.register_all_commands(_plugin_dispatcher)
         self._components.append(plugin_registry)
+
+        skill_manager = SkillManager(directories=self.settings.skills.directories)
+        self.container.register("skill_manager", skill_manager)
+        if self.settings.skills.enabled and self.settings.skills.auto_load:
+            skill_manager.discover()
 
         # Alert pipeline (Task 023 Phase G) — conditional on crypto being
         # enabled (needs market_intel_aggregator), the alert feature flag,
