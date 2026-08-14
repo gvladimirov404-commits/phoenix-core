@@ -61,6 +61,10 @@ class ChanifyIntegration:
             )
             return False
 
+    async def stop(self) -> None:
+        """Stop the integration during PhoenixApplication shutdown."""
+        await self.close()
+
     async def close(self) -> None:
         """Close the underlying Chanify HTTP client."""
         if self._client is not None:
