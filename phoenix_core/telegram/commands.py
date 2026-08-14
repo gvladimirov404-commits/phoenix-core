@@ -1301,10 +1301,18 @@ _MSG_RESEARCH_INTEL_UNAVAILABLE = "Модулът за пазарен прегл
 _MSG_RESEARCH_NO_DATA = "⚠️ Не успях да взема достатъчно данни за проучването. Опитай отново по-късно."
 
 
-def _build_research_prompt(snapshot, signals, evidence) -> str:
+def _build_research_prompt(snapshot, signals, evidence, skill_instructions=None) -> str:
     """Ask the AI only for the interpretive narrative — every factual figure
     in the final report is assembled separately in code, from real data,
-    never from the model (crypto-research Skill, Evidence rules)."""
+    never from the model (crypto-research Skill, Evidence rules).
+
+    skill_instructions (Task 025) is the crypto-research SKILL.md's
+    Markdown body, resolved by research_capability.run_research via
+    SkillManager, or None if unavailable — when present, it's included
+    as brief guidance for how to interpret the data below; the AI is
+    never asked to invent or restate the factual fields themselves,
+    the instruction to describe only what the data below shows still
+    applies regardless of skill_instructions."""
     parts = [
         f"Ти си крипто анализатор. Напиши кратко проучване за {snapshot.symbol} на български, "
         "в два ясно означени раздела:\n"
@@ -1312,6 +1320,8 @@ def _build_research_prompt(snapshot, signals, evidence) -> str:
         "ИЗВОД: (1 изречение, БЕЗ пряка препоръка за покупка/продажба)\n"
         "Не измисляй факти извън дадените данни. Ако липсва информация, кажи го изрично."
     ]
+    if skill_instructions:
+        parts.append(f"Контекст за процедурата на анализа (следвай духа, не цитирай дословно):\n{skill_instructions}")
     if snapshot.market is not None:
         m = snapshot.market
         change_str = f"{m.change_24h_pct:+.2f}%" if m.change_24h_pct is not None else "неизвестна"

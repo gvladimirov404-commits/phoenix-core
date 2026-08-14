@@ -57,7 +57,7 @@ class FakeAIRouter:
         return self._response
 
 
-def _dummy_build_prompt(snapshot, signals, evidence):
+def _dummy_build_prompt(snapshot, signals, evidence, skill_instructions=None):
     return f"prompt for {snapshot.symbol}"
 
 
@@ -154,3 +154,138 @@ class TestNoTelegramDependency:
         ]
         telegram_imports = [line for line in import_lines if "telegram" in line.lower()]
         assert telegram_imports == [], f"Found Telegram import(s): {telegram_imports}"
+
+
+class FakeSkillManager:
+    """Minimal in-memory stand-in matching SkillManager's public get()/has()
+    contract, used only to test the run_research <-> SkillManager wiring
+    without needing real SKILL.md files on disk here (TASK-025)."""
+
+    def __init__(self, skills=None):
+        self._skills = skills or {}
+
+    def get(self, name):
+        if name not in self._skills:
+            raise KeyError(f"Skill '{name}' not found")
+        return self._skills[name]
+
+    def has(self, name):
+        return name in self._skills
+
+
+class TestSkillIntegration:
+    @pytest.mark.asyncio
+    async def test_skill_is_used_when_available(self, tmp_path) -> None:
+        """Test 1 (TASK-025): a real SkillManager, backed by a real
+        temporary SKILL.md file, is registered in the container and its
+        crypto-research skill reaches the research workflow."""
+        from phoenix_core.skills.manager import SkillManager
+
+        skill_dir = tmp_path / "crypto-research"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: crypto-research\n"
+            "description: Test skill for integration testing\n"
+            "---\n\n"
+            "## Procedure\nDo the research thing.\n",
+            encoding="utf-8",
+        )
+        skill_manager = SkillManager(directories=[str(tmp_path)])
+        skill_manager.discover()
+        assert skill_manager.has("crypto-research")
+
+        container = Container()
+        container.register("market_intel_aggregator", FakeAggregator(_snapshot()))
+        container.register("ai_router", FakeAIRouter(response=FakeAIResponse()))
+        container.register("skill_manager", skill_manager)
+
+        received = {}
+
+        def capturing_build_prompt(snapshot, signals, evidence, skill_instructions=None):
+            received["skill_instructions"] = skill_instructions
+            return "prompt"
+
+        await run_research("btc", container, capturing_build_prompt, user_id=1)
+
+        assert received["skill_instructions"] is not None
+        assert "Do the research thing." in received["skill_instructions"]
+
+    @pytest.mark.asyncio
+    async def test_skill_instructions_are_not_lost(self, tmp_path) -> None:
+        """Test 2 (TASK-025): a unique marker string in the SKILL.md body
+        reaches the build_prompt callable unmodified."""
+        from phoenix_core.skills.manager import SkillManager
+
+        skill_dir = tmp_path / "crypto-research"
+        skill_dir.mkdir(parents=True)
+        marker = "TEST_SKILL_INSTRUCTION_MARKER"
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: crypto-research\n"
+            "description: Marker test skill\n"
+            "---\n\n"
+            f"{marker}\n",
+            encoding="utf-8",
+        )
+        skill_manager = SkillManager(directories=[str(tmp_path)])
+        skill_manager.discover()
+
+        container = Container()
+        container.register("market_intel_aggregator", FakeAggregator(_snapshot()))
+        container.register("ai_router", FakeAIRouter(response=FakeAIResponse()))
+        container.register("skill_manager", skill_manager)
+
+        received = {}
+
+        def capturing_build_prompt(snapshot, signals, evidence, skill_instructions=None):
+            received["skill_instructions"] = skill_instructions
+            return "prompt"
+
+        await run_research("btc", container, capturing_build_prompt, user_id=1)
+
+        assert marker in received["skill_instructions"]
+
+    @pytest.mark.asyncio
+    async def test_missing_skill_manager_does_not_crash(self) -> None:
+        """Test 3 (TASK-025): no skill_manager registered at all — research
+        proceeds normally with skill_instructions=None, no traceback."""
+        container = Container()
+        container.register("market_intel_aggregator", FakeAggregator(_snapshot()))
+        container.register("ai_router", FakeAIRouter(response=FakeAIResponse()))
+        # No skill_manager registered.
+
+        received = {}
+
+        def capturing_build_prompt(snapshot, signals, evidence, skill_instructions=None):
+            received["skill_instructions"] = skill_instructions
+            return "prompt"
+
+        result = await run_research("btc", container, capturing_build_prompt, user_id=1)
+
+        assert received["skill_instructions"] is None
+        assert isinstance(result, ResearchResult)
+
+    @pytest.mark.asyncio
+    async def test_missing_crypto_research_skill_falls_back_cleanly(self) -> None:
+        """Test 4 (TASK-025): a SkillManager is registered and has other
+        skills, but not crypto-research — falls back to
+        skill_instructions=None, no fabricated SkillDefinition, no crash."""
+        other_skill = SimpleNamespace(name="other-skill", instructions="unrelated")
+        skill_manager = FakeSkillManager(skills={"other-skill": other_skill})
+
+        container = Container()
+        container.register("market_intel_aggregator", FakeAggregator(_snapshot()))
+        container.register("ai_router", FakeAIRouter(response=FakeAIResponse()))
+        container.register("skill_manager", skill_manager)
+
+        received = {}
+
+        def capturing_build_prompt(snapshot, signals, evidence, skill_instructions=None):
+            received["skill_instructions"] = skill_instructions
+            return "prompt"
+
+        result = await run_research("btc", container, capturing_build_prompt, user_id=1)
+
+        assert received["skill_instructions"] is None
+        assert isinstance(result, ResearchResult)

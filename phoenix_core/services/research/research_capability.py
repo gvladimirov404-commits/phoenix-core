@@ -83,6 +83,29 @@ class ResearchResult:
     provider: str
 
 
+_CRYPTO_RESEARCH_SKILL_NAME = "crypto-research"
+
+
+def _resolve_skill_instructions(container: Container) -> Optional[str]:
+    """Best-effort lookup of the crypto-research Skill's instructions
+    (Task 025). Never raises: a missing skill_manager, or a skill_manager
+    without the crypto-research skill loaded, both fall back to None —
+    the caller's build_prompt is expected to handle that the same way
+    it already handles other optional MarketSnapshot fields being None.
+    No SkillDefinition is ever fabricated here."""
+    try:
+        skill_manager = container.resolve("skill_manager")
+    except KeyError:
+        return None
+
+    try:
+        skill = skill_manager.get(_CRYPTO_RESEARCH_SKILL_NAME)
+    except KeyError:
+        return None
+
+    return skill.instructions
+
+
 async def run_research(
     symbol: str,
     container: Container,
@@ -95,12 +118,19 @@ async def run_research(
         symbol: Coin symbol (e.g. "btc"). Case/whitespace are normalized
             downstream by MarketIntelligenceAggregator, same as before.
         container: DI container to resolve market_intel_aggregator,
-            ai_router, and (optionally) ai_guard from.
-        build_prompt: Callable(snapshot, signals, evidence) -> str that
-            builds the AI prompt text. Passed in rather than imported,
-            so the exact prompt wording stays defined once, in
-            commands.py's _build_research_prompt — this function does
-            not duplicate or reinterpret that text.
+            ai_router, (optionally) ai_guard, and (optionally)
+            skill_manager from.
+        build_prompt: Callable(snapshot, signals, evidence,
+            skill_instructions=None) -> str that builds the AI prompt
+            text. Passed in rather than imported, so the exact prompt
+            wording stays defined once, in commands.py's
+            _build_research_prompt — this function does not duplicate
+            or reinterpret that text. skill_instructions is the loaded
+            crypto-research SKILL.md's Markdown body (Task 025), or
+            None if no SkillManager is registered or the skill isn't
+            loaded — build_prompt callables that don't accept this
+            keyword still work, since it's only passed when accepted
+            (see the getattr-based call below).
         user_id: Optional caller id, used only for AI Guard rate limiting
             and structured logging — never for business logic branching.
 
@@ -138,7 +168,8 @@ async def run_research(
     except KeyError:
         ai_guard = None
 
-    prompt = build_prompt(snapshot, signals, evidence)
+    skill_instructions = _resolve_skill_instructions(container)
+    prompt = build_prompt(snapshot, signals, evidence, skill_instructions=skill_instructions)
     messages = [{"role": "user", "content": prompt}]
 
     logger.info(
