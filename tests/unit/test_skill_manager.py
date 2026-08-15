@@ -196,3 +196,35 @@ class TestNoCodeExecution:
 
         assert not marker_path.exists()
         assert manager.has("test-skill")
+
+
+class TestApplicationWiring:
+    """Task 026: verify SkillsConfig.enabled/auto_load actually gate
+    discovery through the real PhoenixApplication wiring, not just in
+    SkillManager isolation. The real skills/research/crypto-research/
+    SKILL.md file on disk is what proves discovery would have found
+    something if it had run."""
+
+    def test_skills_disabled_prevents_discovery(self) -> None:
+        from phoenix_core.config.settings import Settings, SkillsConfig
+        from phoenix_core.core.application import PhoenixApplication
+
+        settings = Settings(skills=SkillsConfig(enabled=False, directories=["skills"]))
+        app = PhoenixApplication(settings)
+
+        skill_manager = app.container.resolve("skill_manager")
+
+        assert skill_manager.list_skills() == []
+
+    def test_auto_load_false_prevents_discovery(self) -> None:
+        from phoenix_core.config.settings import Settings, SkillsConfig
+        from phoenix_core.core.application import PhoenixApplication
+
+        settings = Settings(
+            skills=SkillsConfig(enabled=True, auto_load=False, directories=["skills"])
+        )
+        app = PhoenixApplication(settings)
+
+        skill_manager = app.container.resolve("skill_manager")
+
+        assert skill_manager.list_skills() == []
