@@ -26,9 +26,10 @@ def make_update_and_context(text: str, args=None, user_id: int = 123, chat_id: i
     return update, context
 
 
-def make_bot(token: str = "fake-token-not-used") -> TelegramBot:
+def make_bot(token: str = "fake-token-not-used", allowed_users=None) -> TelegramBot:
     container = Container()
-    return TelegramBot(token=token, settings=SimpleNamespace(), container=container)
+    settings = SimpleNamespace(allowed_users=allowed_users if allowed_users is not None else [])
+    return TelegramBot(token=token, settings=settings, container=container)
 
 
 class TestCommandRegistration:
@@ -132,3 +133,76 @@ class TestLifecycle:
         bot = make_bot()
         health = await bot.health_check()
         assert health["status"] == "not_started"
+
+
+class TestAuthorization:
+    """Task 028: TelegramConfig.allowed_users enforcement in _handle()."""
+
+    async def test_authorized_user_is_allowed_through(self) -> None:
+        bot = make_bot(allowed_users=[123])
+        update, context = make_update_and_context("/version", user_id=123)
+
+        await bot._handle(update, context)
+
+        text = update.message.reply_text.call_args[0][0]
+        assert "Phoenix Core" in text
+
+    async def test_unauthorized_user_is_rejected(self) -> None:
+        bot = make_bot(allowed_users=[999])
+        update, context = make_update_and_context("/version", user_id=123)
+
+        await bot._handle(update, context)
+
+        text = update.message.reply_text.call_args[0][0]
+        assert "Нямаш достъп" in text
+
+    async def test_unauthorized_user_does_not_reach_dispatcher(self) -> None:
+        bot = make_bot(allowed_users=[999])
+        bot._dispatcher.dispatch = AsyncMock(side_effect=AssertionError("dispatch must not be called"))
+        update, context = make_update_and_context("/version", user_id=123)
+
+        await bot._handle(update, context)  # must not raise
+
+        bot._dispatcher.dispatch.assert_not_called()
+
+    async def test_empty_allowed_users_preserves_prior_behavior(self) -> None:
+        """Empty allowed_users means no allowlist configured — every user
+        is permitted, matching the bot's behavior before Task 028."""
+        bot = make_bot(allowed_users=[])
+        update, context = make_update_and_context("/version", user_id=123)
+
+        await bot._handle(update, context)
+
+        text = update.message.reply_text.call_args[0][0]
+        assert "Phoenix Core" in text
+
+    async def test_multiple_allowed_users_all_work(self) -> None:
+        bot = make_bot(allowed_users=[111, 222, 333])
+
+        for uid in (111, 222, 333):
+            update, context = make_update_and_context("/version", user_id=uid)
+            await bot._handle(update, context)
+            text = update.message.reply_text.call_args[0][0]
+            assert "Phoenix Core" in text
+
+    async def test_authorization_does_not_break_normal_command_flow(self) -> None:
+        bot = make_bot(allowed_users=[123])
+        update, context = make_update_and_context("/ask hi there", args=["hi", "there"], user_id=123)
+
+        await bot._handle(update, context)
+
+        text = update.message.reply_text.call_args[0][0]
+        assert "не е наличен" in text  # no ai_router registered — normal flow reached dispatch
+
+    async def test_unauthorized_user_cannot_trigger_ai_command(self) -> None:
+        """Security test: an unauthorized user's /ask never reaches the
+        dispatcher, so no AI provider resolution or call is ever attempted."""
+        bot = make_bot(allowed_users=[999])
+        bot._dispatcher.dispatch = AsyncMock(side_effect=AssertionError("AI dispatch must not be called"))
+        update, context = make_update_and_context("/ask something", args=["something"], user_id=123)
+
+        await bot._handle(update, context)  # must not raise
+
+        bot._dispatcher.dispatch.assert_not_called()
+        text = update.message.reply_text.call_args[0][0]
+        assert "Нямаш достъп" in text

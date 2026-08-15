@@ -41,6 +41,10 @@ services:
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
+      # SQLite must live inside a writable mounted volume — the container's
+      # root filesystem is read-only (Task 030), so the default relative
+      # "phoenix.db" (which would resolve under /app) is not writable here.
+      - SQLITE_DATABASE=/app/data/phoenix.db
 
     volumes:
       # Writable directories for read-only filesystem

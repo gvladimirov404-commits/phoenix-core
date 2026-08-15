@@ -218,6 +218,24 @@ class TelegramBot:
             language_code=getattr(telegram_user, "language_code", None),
             command=command_name,
         )
+
+        # Authorization (Task 028): allowed_users is opt-in — an empty list
+        # preserves the prior, unrestricted behavior (no allowlist config
+        # or documentation anywhere defines "empty" as "deny all"). Only
+        # once the operator populates allowed_users does the bot start
+        # restricting access. Checked before dispatch so an unauthorized
+        # user's message never reaches CommandDispatcher — no AI call, no
+        # service resolution, nothing beyond this early return.
+        allowed_users = getattr(self.settings, "allowed_users", None) or []
+        if allowed_users and telegram_user.id not in allowed_users:
+            logger.warning(
+                "Unauthorized Telegram user rejected",
+                user_id=telegram_user.id,
+                command=command_name,
+            )
+            await message.reply_text("⛔ Нямаш достъп до този бот.")
+            return
+
         response = await self._dispatcher.dispatch(command_name, args, command_context, self.container)
 
         chunks = _split_for_telegram(response)

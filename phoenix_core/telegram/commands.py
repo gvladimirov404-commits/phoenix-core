@@ -1043,6 +1043,23 @@ async def cmd_consensus(args: List[str], context: CommandContext, container: Con
     engine = ConsensusEngine(ai_router)
     messages = [{"role": "user", "content": question}]
 
+    # AI Guard (Task 030): /consensus fans out to every configured provider,
+    # making it the most expensive command in the bot, but the guard check
+    # itself is a single per-user check against the one question text the
+    # user actually sent — the same rate-limit/prompt-size/context-size
+    # semantics as /ask, /explain, /research. It must run before any
+    # provider is contacted, so a rejected request never reaches
+    # ConsensusEngine.get_consensus() at all.
+    if ai_guard is not None:
+        try:
+            ai_guard.guard_request(context.user_id, question, messages)
+        except RateLimitExceededError:
+            return _MSG_AI_RATE_LIMIT
+        except PromptTooLargeError:
+            return f"⚠️ Заявката е твърде дълга (максимум {max_length} символа)."
+        except ContextTooLargeError:
+            return _MSG_CONTEXT_TOO_LARGE
+
     logger.info(
         "Consensus request started",
         command="consensus",

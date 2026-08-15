@@ -65,7 +65,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3     CMD p
 EXPOSE 8080
 
 # Security: Use exec form for proper signal handling
-CMD ["python", "-m", "phoenix_core"]
+CMD ["python", "-m", "phoenix_core", "start"]
 
 # --------------------
 # Stage 3: Development
