@@ -59,6 +59,13 @@ COPY --chown=phoenix:phoenix phoenix_core/ ./phoenix_core/
 USER phoenix
 
 # Security: Health check (non-privileged)
+# Task 033: this healthcheck is intentionally limited to verifying the
+# Python package imports successfully. A stronger check (e.g. verifying
+# database writability or Telegram connectivity) was considered and
+# rejected: the SQLite path depends on a runtime env var not fixed at
+# build time, and any check requiring Telegram/AI provider network
+# access would violate this healthcheck's explicit no-network-calls
+# constraint. This remains a liveness check only, not a readiness check.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3     CMD python -c "import phoenix_core; print('OK')" || exit 1
 
 # Security: Expose only necessary port

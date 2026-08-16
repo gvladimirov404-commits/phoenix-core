@@ -106,6 +106,18 @@ Every integration degrades gracefully: leave a variable unset (GitHub token, a s
 python -m pytest tests/ -q
 ```
 
+## Deployment & Data Backup
+
+Phoenix Core stores all persistent state (conversations, watchlists, market snapshots, alert cooldowns) in a single SQLite file. There is currently no automatic backup mechanism; this is a manual operational responsibility.
+
+**Database location**: when running via docker-compose.yml, the SQLite database lives at /app/data/phoenix.db inside the container (see SQLITE_DATABASE in the compose files environment section), and /app/data is mounted from the host directory ./data (see volumes).
+
+**Manual backup procedure** (suitable for a small controlled beta): periodically copy the database file out of the mounted host directory -- for example, run: cp ./data/phoenix.db ./backups/phoenix-backup.db
+
+Run this periodically (e.g. daily via cron) and keep copies somewhere other than the same host -- a host-mounted Docker volume is not an off-site backup by itself. If the host directory ./data is deleted, the SQLite database is lost unless a copy exists elsewhere.
+
+For non-Docker deployments, back up whatever file SQLITE_DATABASE points to in your .env (default: phoenix.db in the working directory).
+
 ## Plugin System & Sandbox Mode
 
 Drop a Python file into `plugins/` exposing a module-level `PLUGIN` instance of `PhoenixPlugin`, and it's discovered and registered automatically on startup — no core code changes needed. See `plugins/example_ping.py` for a minimal working example.

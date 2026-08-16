@@ -1112,6 +1112,31 @@ async def cmd_benchmark(args: List[str], context: CommandContext, container: Con
     if not ai_router.list_providers():
         return _MSG_BENCHMARK_UNAVAILABLE
 
+    try:
+        ai_guard = container.resolve("ai_guard")
+    except KeyError:
+        ai_guard = None
+
+    # AI Guard (Task 032): /benchmark fans out to every configured
+    # provider using a fixed internal prompt set — the user supplies no
+    # text of their own. guard_request() still represents the single
+    # logical /benchmark action (one rate-limit check per invocation,
+    # same as every other AI command), using a fixed representative
+    # string rather than inventing a new guard API or multiplying the
+    # check by provider/prompt count. Must run before any provider work
+    # begins, so a rejected request never reaches PhoenixBenchmark.run().
+    if ai_guard is not None:
+        benchmark_action = "/benchmark"
+        benchmark_messages = [{"role": "user", "content": benchmark_action}]
+        try:
+            ai_guard.guard_request(context.user_id, benchmark_action, benchmark_messages)
+        except RateLimitExceededError:
+            return _MSG_AI_RATE_LIMIT
+        except PromptTooLargeError:
+            return _MSG_INVALID_INPUT
+        except ContextTooLargeError:
+            return _MSG_CONTEXT_TOO_LARGE
+
     logger.info("Benchmark started", command="benchmark", user_id=context.user_id)
 
     benchmark = PhoenixBenchmark(ai_router)
